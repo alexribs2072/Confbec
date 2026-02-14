@@ -1,0 +1,58 @@
+REGRAS GERAIS DE ESPORTES DE CONTATO
+CAPÍTULO I - DAS CATEGORIAS E IDADES
+Artigo 01 - A idade mínima para o atleta Kadete iniciar competições é de 05 anos completos até a data da primeira luta, permanecendo nesta categoria até o dia em que complete 15 anos.
+Artigo 02 - A categoria Juvenil compreende atletas com idade entre 15 anos completos e 17 anos (até a véspera de completar 18 anos). Ao atingir 18 anos, o atleta passa obrigatoriamente para a categoria Adulto.
+Artigo 03 - A categoria Adulto compreende atletas de 18 a 40 anos completos.
+Artigo 04 - Atletas acima de 40 anos enquadram-se na categoria Master, subdividida em:
+Master 1: De 41 a 55 anos completos.
+Master 2: De 56 anos em diante.
+Artigo 05 - Competições para atletas acima de 40 anos exigem Autorização Especial:
+Eventos Estaduais/Municipais: Autorização da Federação Estadual.
+Eventos Nacionais/Internacionais: Autorização da Confederação Brasileira de Esportes de Contato (CONFBEC).
+Parágrafo Único: A solicitação deve ser feita com antecedência mínima de 30 dias, estando o atleta em pleno gozo de seus direitos perante as entidades.
+CAPÍTULO II - DAS DIVISÕES E MODALIDADES
+Artigo 06 - As modalidades permitidas por categoria são:
+Kadete e Master: Point Fight, Kickboxing Light Contact, K1 Light e Brazilian Grappling (Kadete inclui também Kickboxing Semi Contato).
+Juvenil e Adulto: Todas as modalidades previstas pela Confederação.
+Artigo 07 - As categorias de combate são divididas por nível técnico:
+Categoria Faixas Coloridas: Atletas iniciantes e intermediários.
+Categoria Avançada: Atletas graduados como Faixa Marrom, Faixa Preta, Prajied Azul Escuro, Prajied Azul Escuro Ponta Preta, Faixa Preta com DAN, Faixa Coral, Prajied Grau Preto (e suas variações de Branco/Vermelho) e Grau Preto com DAN.
+Artigo 08 - As divisões de peso seguem as tabelas oficiais:
+Kadete: 10 divisões (25kg a +100kg).
+Juvenil: 13 divisões (40kg a +95kg).
+Adulto: 10 divisões (55kg a +95kg).
+Master: 05 divisões (60kg a +90kg).
+CAPÍTULO III - DAS PROIBIÇÕES E CONDUTA
+Artigo 09 - É terminantemente proibido o combate entre:
+Atletas de sexos diferentes (mesmo em exibições);
+Atletas maiores e menores de idade, independentemente de autorização de responsáveis ou treinadores.
+Artigo 10 - Salvo autorização do Supervisor do Evento, é proibido o acesso à área de combate por pessoas não autorizadas. O acesso é restrito a: Atletas, Técnicos/Assistentes, Anunciantes, Locutor e Equipe de Arbitragem. O descumprimento pode acarretar desclassificação imediata do atleta relacionado.
+Artigo 11 - O atleta deve manter silêncio absoluto durante o combate, comunicando-se apenas com seu técnico nos intervalos.
+Exceção: Nas modalidades de Brazilian Hapkidô, Taekwondô ou Karatê, é permitido o uso do "Kiai" ou "Ki-hap".
+Comunicação com Árbitro: Restrita às palavras "desisto" ou "abandono".
+CAPÍTULO IV - EQUIPAMENTOS E PROTEÇÕES (EPIS)
+Artigo 12 - O uso de equipamentos de proteção é obrigatório e fiscalizado:
+Protetor Bucal: Obrigatório em todas as modalidades. Se cair:
+1ª e 2ª vez: Lavagem e recolocação (advertência verbal na 2ª).
+3ª vez: Desconto de 01 ponto.
+4ª vez: Desclassificação.
+Bandagens: Obrigatórias para modalidades de trocação (exceto Luta Semi-Livre). Devem ser de algodão (2,5m a 5m de comprimento; 5cm a 8cm de largura). Fita adesiva permitida apenas no pulso (max. 2,5cm x 8cm).
+Protetor de Seios: Obrigatório para mulheres (exceto Brazilian Grappling).
+Protetor de Tórax e Capacete: Obrigatórios para Kadete e Juvenil em modalidades de trocação.
+K1 Light Kadete: Obrigatório capacete com grade.
+CAPÍTULO V - RESULTADOS E DOPING
+Artigo 13 - Não haverá empate (exceto na categoria Kadete). Em caso de igualdade na pontuação, a arbitragem deve nomear um vencedor por critério técnico.
+Artigo 14 - É proibido o uso de qualquer substância ilícita ou doping (conforme normas do COB).
+Sanção: Suspensão automática mínima de 03 meses e julgamento pelo STJD.
+CAPÍTULO VI - DINÂMICA DE COMBATE (KICKBOXING / BOXE)
+Artigo 15 - O vencedor será declarado por: Pontos, K.O. (Nocaute), K.O.T. (Nocaute Técnico) ou Desclassificação do oponente.
+K.O.T. é definido por: Intervenção do árbitro (inferioridade), desistência, interrupção médica, 3 K.D. (Knockdowns) no round ou 4 na luta, ou se o atleta não retornar do intervalo.
+Artigo 16 - Em casos de choque acidental de cabeças com corte:
+1º Round: Luta sem resultado (No Contest).
+A partir do 2º Round: Decisão pelas papeletas (vitória para quem pontuava mais até o momento).
+O que foi melhorado:
+Agrupamento Temático: Criei capítulos (Idades, Proibições, Equipamentos) para facilitar a consulta rápida.
+Eliminação de Redundância: A lista de graduações "Avançadas" aparecia 4 vezes; agora está em um único artigo aplicável a todos.
+Correção de Numeração: O texto original tinha vários Artigos 11 e 12 repetidos. Agora seguem uma sequência lógica.
+Clareza no Protetor Bucal: A regra de quedas do protetor foi resumida para ser lida rapidamente pelos árbitros.
+Terminologia: Substituí "fazer parte da categoria" por termos mais formais como "enquadra-se" ou "compreende".
