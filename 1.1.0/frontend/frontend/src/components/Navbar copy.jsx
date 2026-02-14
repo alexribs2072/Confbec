@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  AppBar, Box, Toolbar, IconButton, Typography, Menu,
-  Container, Avatar, Button, Tooltip, MenuItem, Divider
+  AppBar,
+  Box,
+  Toolbar,
+  IconButton,
+  Typography,
+  Menu,
+  Container,
+  Avatar,
+  Button,
+  Tooltip,
+  MenuItem,
+  Divider
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -16,22 +26,27 @@ function Navbar() {
   const [anchorElNav, setAnchorElNav] = useState(null);
   const [anchorElUser, setAnchorElUser] = useState(null);
 
-  const isAdmin = user?.tipo === 'admin';
-  const isProfessor = user?.tipo === 'professor' || user?.tipo === 'treinador';
-  const isAtleta = user?.tipo === 'atleta';
-
-  const profileRoute = isAtleta ? '/perfil-atleta' : '/perfil-usuario';
-
   const handleOpenNavMenu = (event) => setAnchorElNav(event.currentTarget);
   const handleOpenUserMenu = (event) => setAnchorElUser(event.currentTarget);
   const handleCloseNavMenu = () => setAnchorElNav(null);
   const handleCloseUserMenu = () => setAnchorElUser(null);
 
-  const safeNavigate = (path) => {
-    handleCloseNavMenu();
-    handleCloseUserMenu();
-    navigate(path);
+  // Verificações de permissão
+  const isAdmin = user?.tipo === 'admin';
+  const isProfessor = user?.tipo === 'professor' || user?.tipo === 'treinador';
+  const isAtleta = user?.tipo === 'atleta';
+
+  // ✅ PERFIL POR TIPO (ROTAS DO REACT)
+  // Ajuste aqui se suas rotas forem diferentes:
+  const profileRouteMap = {
+    admin: '/admin/perfil',          // se não existir ainda, pode trocar pra '/admin'
+    professor: '/perfil-professor',  // se não existir ainda, crie ou aponte pra outra rota
+    treinador: '/perfil-professor',
+    atleta: '/perfil-atleta',
   };
+
+  const profileRoute =
+    profileRouteMap[user?.tipo] || '/perfil-atleta';
 
   const handleLogout = async () => {
     handleCloseUserMenu();
@@ -42,9 +57,12 @@ function Navbar() {
     }
   };
 
+  // (Opcional) base para evoluir depois sem duplicar menu
+  const approvalsRoute = '/admin/filiacoes-pendentes';
+
   return (
     <AppBar
-      position="sticky"
+      position="sticky" // ✅ STICKY
       elevation={0}
       sx={{
         borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
@@ -55,6 +73,7 @@ function Navbar() {
     >
       <Container maxWidth="xl">
         <Toolbar disableGutters>
+
           <Typography
             variant="h6"
             noWrap
@@ -91,22 +110,25 @@ function Navbar() {
               open={Boolean(anchorElNav)}
               onClose={handleCloseNavMenu}
               keepMounted
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
               sx={{ display: { xs: 'block', md: 'none' } }}
             >
-              <MenuItem onClick={() => safeNavigate('/')}>Início</MenuItem>
-
-              <MenuItem onClick={() => safeNavigate('/competicoes')}>Competições</MenuItem>
+              <MenuItem onClick={handleCloseNavMenu} component={RouterLink} to="/">Início</MenuItem>
 
               {isAtleta && (
                 <>
-                  <MenuItem onClick={() => safeNavigate('/filiacao')}>Nova Filiação</MenuItem>
-                  <MenuItem onClick={() => safeNavigate('/minhas-filiacoes')}>Minhas Filiações</MenuItem>
-                  <MenuItem onClick={() => safeNavigate('/competicoes/minhas-inscricoes')}>Minhas Inscrições</MenuItem>
+                  <MenuItem onClick={handleCloseNavMenu} component={RouterLink} to="/filiacao">
+                    Nova Filiação
+                  </MenuItem>
+                  <MenuItem onClick={handleCloseNavMenu} component={RouterLink} to="/minhas-filiacoes">
+                    Minhas Filiações
+                  </MenuItem>
                 </>
               )}
 
               {(isAdmin || isProfessor) && (
-                <MenuItem onClick={() => safeNavigate('/admin/filiacoes-pendentes')}>
+                <MenuItem onClick={handleCloseNavMenu} component={RouterLink} to={approvalsRoute}>
                   Aprovações
                 </MenuItem>
               )}
@@ -135,10 +157,6 @@ function Navbar() {
               Início
             </Button>
 
-            <Button component={RouterLink} to="/competicoes" sx={{ my: 2, color: 'white' }}>
-              Competições
-            </Button>
-
             {isAtleta && (
               <>
                 <Button component={RouterLink} to="/filiacao" sx={{ my: 2, color: 'white' }}>
@@ -147,16 +165,13 @@ function Navbar() {
                 <Button component={RouterLink} to="/minhas-filiacoes" sx={{ my: 2, color: 'white' }}>
                   Minhas Filiações
                 </Button>
-                <Button component={RouterLink} to="/competicoes/minhas-inscricoes" sx={{ my: 2, color: 'white' }}>
-                  Minhas Inscrições
-                </Button>
               </>
             )}
 
             {(isAdmin || isProfessor) && (
               <Button
                 component={RouterLink}
-                to="/admin/filiacoes-pendentes"
+                to={approvalsRoute}
                 variant="contained"
                 color="secondary"
                 sx={{ my: 2, ml: 2, fontWeight: 'bold' }}
@@ -166,7 +181,7 @@ function Navbar() {
             )}
           </Box>
 
-          {/* MENU DE USUÁRIO */}
+          {/* MENU DE USUÁRIO (AVATAR) */}
           <Box sx={{ flexGrow: 0 }}>
             {user ? (
               <>
@@ -206,12 +221,13 @@ function Navbar() {
                   <Divider />
 
                   {isAdmin && (
-                    <MenuItem onClick={() => safeNavigate('/admin')}>
+                    <MenuItem onClick={() => { handleCloseUserMenu(); navigate('/admin'); }}>
                       <DashboardIcon sx={{ mr: 1, fontSize: 'small' }} /> Painel Admin
                     </MenuItem>
                   )}
 
-                  <MenuItem onClick={() => safeNavigate(profileRoute)}>
+                  {/* ✅ Meu Perfil por tipo */}
+                  <MenuItem onClick={() => { handleCloseUserMenu(); navigate(profileRoute); }}>
                     Meu Perfil
                   </MenuItem>
 
@@ -231,6 +247,7 @@ function Navbar() {
               </Box>
             )}
           </Box>
+
         </Toolbar>
       </Container>
     </AppBar>

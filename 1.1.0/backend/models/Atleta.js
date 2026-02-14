@@ -30,6 +30,11 @@ const Atleta = sequelize.define('Atleta', {
     cidade: DataTypes.STRING,
     estado: DataTypes.STRING(2),
     telefone_contato: DataTypes.STRING(20),
+    // (Patch competições v2)
+    sexo: {
+        type: DataTypes.ENUM('M', 'F'),
+        allowNull: true
+    },
     foto_url: {
         type: DataTypes.STRING(1024),
         allowNull: true

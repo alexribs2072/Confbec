@@ -50,8 +50,8 @@ exports.createOrUpdateMeuPerfil = async (req, res) => {
     const {
         nome_completo, data_nascimento, rg, cpf,
         logradouro, cep, bairro, cidade, estado, telefone_contato
-        // Não inclui foto_url aqui, pois é tratada em outra rota
-    } = req.body;
+        // Não inclui foto_url aqui, pois é tratada em outra rota, sexo
+        } = req.body;
 
     // Verifica se req.usuario existe
     if (!req.usuario) {
@@ -65,6 +65,11 @@ exports.createOrUpdateMeuPerfil = async (req, res) => {
         return res.status(400).json({ msg: 'Nome completo, data de nascimento e CPF são obrigatórios.' });
     }
 
+    // Validação opcional do sexo (quando informado)
+    if (sexo && !['M', 'F'].includes(String(sexo).toUpperCase())) {
+        return res.status(400).json({ msg: 'Campo sexo inválido. Use M ou F.' });
+    }
+
     try {
         // Procura se já existe um perfil para este usuário
         let atleta = await Atleta.findByPk(usuarioId);
@@ -74,7 +79,8 @@ exports.createOrUpdateMeuPerfil = async (req, res) => {
         const dadosDoPerfil = {
             id: usuarioId, nome_completo, data_nascimento, rg: rg || null, cpf, // Define rg como null se vazio
             logradouro: logradouro || null, cep: cep || null, bairro: bairro || null, 
-            cidade: cidade || null, estado: estado || null, telefone_contato: telefone_contato || null
+            cidade: cidade || null, estado: estado || null, telefone_contato: telefone_contato || null,
+            sexo: sexo ? String(sexo).toUpperCase() : null
             // foto_url não é atualizada aqui
         };
 

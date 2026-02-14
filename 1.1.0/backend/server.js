@@ -68,6 +68,7 @@ apiRouter.use('/metodos-pagamento', require('./routes/metodoPagamentoRoutes'));
 apiRouter.use('/noticias', require('./routes/noticiaRoutes'));
 apiRouter.use('/usuarios', require('./routes/usuarioRoutes'));
 apiRouter.use('/pagamentos', require('./routes/pagamentoRoutes'));
+apiRouter.use('/competicoes', require('./routes/competicaoRoutes'));
 
 app.use('/api', apiRouter); // Todas as rotas agora prefixadas com /api
 

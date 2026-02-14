@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  AppBar, Box, Toolbar, IconButton, Typography, Menu,
-  Container, Avatar, Button, Tooltip, MenuItem, Divider
+  AppBar,
+  Box,
+  Toolbar,
+  IconButton,
+  Typography,
+  Menu,
+  Container,
+  Avatar,
+  Button,
+  Tooltip,
+  MenuItem,
+  Divider,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -20,18 +30,34 @@ function Navbar() {
   const isProfessor = user?.tipo === 'professor' || user?.tipo === 'treinador';
   const isAtleta = user?.tipo === 'atleta';
 
-  const profileRoute = isAtleta ? '/perfil-atleta' : '/perfil-usuario';
+  const navItems = useMemo(
+    () => [
+      { key: 'home', label: 'Início', to: '/', show: true },
+      { key: 'filiacao', label: 'Nova Filiação', to: '/filiacao', show: isAtleta },
+      { key: 'minhas', label: 'Minhas Filiações', to: '/minhas-filiacoes', show: isAtleta },
+      {
+        key: 'aprovacoes',
+        label: 'Central de Aprovações',
+        mobileLabel: 'Aprovações',
+        to: '/admin/filiacoes-pendentes',
+        show: isAdmin || isProfessor,
+        desktopButton: {
+          variant: 'contained',
+          color: 'secondary',
+          sx: { my: 2, ml: 2, fontWeight: 'bold' },
+        },
+      },
+    ],
+    [isAtleta, isAdmin, isProfessor]
+  );
+
+  const visibleNavItems = navItems.filter((i) => i.show);
 
   const handleOpenNavMenu = (event) => setAnchorElNav(event.currentTarget);
-  const handleOpenUserMenu = (event) => setAnchorElUser(event.currentTarget);
   const handleCloseNavMenu = () => setAnchorElNav(null);
-  const handleCloseUserMenu = () => setAnchorElUser(null);
 
-  const safeNavigate = (path) => {
-    handleCloseNavMenu();
-    handleCloseUserMenu();
-    navigate(path);
-  };
+  const handleOpenUserMenu = (event) => setAnchorElUser(event.currentTarget);
+  const handleCloseUserMenu = () => setAnchorElUser(null);
 
   const handleLogout = async () => {
     handleCloseUserMenu();
@@ -42,19 +68,16 @@ function Navbar() {
     }
   };
 
+  const handleUserNavigate = (path) => {
+    handleCloseUserMenu();
+    navigate(path);
+  };
+
   return (
-    <AppBar
-      position="sticky"
-      elevation={0}
-      sx={{
-        borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
-        bgcolor: 'primary.main',
-        top: 0,
-        zIndex: (theme) => theme.zIndex.drawer + 1,
-      }}
-    >
+    <AppBar position="static" elevation={0} sx={{ borderBottom: '1px solid #e0e0e0', bgcolor: 'primary.main' }}>
       <Container maxWidth="xl">
         <Toolbar disableGutters>
+          {/* LOGO / BRAND (DESKTOP) */}
           <Typography
             variant="h6"
             noWrap
@@ -84,35 +107,30 @@ function Navbar() {
             >
               <MenuIcon />
             </IconButton>
-
             <Menu
               id="menu-nav"
               anchorEl={anchorElNav}
               open={Boolean(anchorElNav)}
               onClose={handleCloseNavMenu}
               keepMounted
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
               sx={{ display: { xs: 'block', md: 'none' } }}
             >
-              <MenuItem onClick={() => safeNavigate('/')}>Início</MenuItem>
-
-              <MenuItem onClick={() => safeNavigate('/competicoes')}>Competições</MenuItem>
-
-              {isAtleta && (
-                <>
-                  <MenuItem onClick={() => safeNavigate('/filiacao')}>Nova Filiação</MenuItem>
-                  <MenuItem onClick={() => safeNavigate('/minhas-filiacoes')}>Minhas Filiações</MenuItem>
-                  <MenuItem onClick={() => safeNavigate('/competicoes/minhas-inscricoes')}>Minhas Inscrições</MenuItem>
-                </>
-              )}
-
-              {(isAdmin || isProfessor) && (
-                <MenuItem onClick={() => safeNavigate('/admin/filiacoes-pendentes')}>
-                  Aprovações
+              {visibleNavItems.map((item) => (
+                <MenuItem
+                  key={item.key}
+                  onClick={handleCloseNavMenu}
+                  component={RouterLink}
+                  to={item.to}
+                >
+                  {item.mobileLabel || item.label}
                 </MenuItem>
-              )}
+              ))}
             </Menu>
           </Box>
 
+          {/* LOGO / BRAND (MOBILE) */}
           <Typography
             variant="h5"
             noWrap
@@ -131,42 +149,31 @@ function Navbar() {
 
           {/* MENU DESKTOP */}
           <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, ml: 2 }}>
-            <Button component={RouterLink} to="/" sx={{ my: 2, color: 'white' }}>
-              Início
-            </Button>
+            {visibleNavItems.map((item) => {
+              const desktopBtn = item.desktopButton || {};
+              const variant = desktopBtn.variant || 'text';
+              const color = desktopBtn.color || 'inherit';
 
-            <Button component={RouterLink} to="/competicoes" sx={{ my: 2, color: 'white' }}>
-              Competições
-            </Button>
-
-            {isAtleta && (
-              <>
-                <Button component={RouterLink} to="/filiacao" sx={{ my: 2, color: 'white' }}>
-                  Nova Filiação
+              return (
+                <Button
+                  key={item.key}
+                  component={RouterLink}
+                  to={item.to}
+                  variant={variant}
+                  color={color}
+                  sx={{
+                    my: 2,
+                    ...(variant === 'contained' ? {} : { color: 'white' }),
+                    ...(desktopBtn.sx || {}),
+                  }}
+                >
+                  {item.label}
                 </Button>
-                <Button component={RouterLink} to="/minhas-filiacoes" sx={{ my: 2, color: 'white' }}>
-                  Minhas Filiações
-                </Button>
-                <Button component={RouterLink} to="/competicoes/minhas-inscricoes" sx={{ my: 2, color: 'white' }}>
-                  Minhas Inscrições
-                </Button>
-              </>
-            )}
-
-            {(isAdmin || isProfessor) && (
-              <Button
-                component={RouterLink}
-                to="/admin/filiacoes-pendentes"
-                variant="contained"
-                color="secondary"
-                sx={{ my: 2, ml: 2, fontWeight: 'bold' }}
-              >
-                Central de Aprovações
-              </Button>
-            )}
+              );
+            })}
           </Box>
 
-          {/* MENU DE USUÁRIO */}
+          {/* MENU DE USUÁRIO (AVATAR) */}
           <Box sx={{ flexGrow: 0 }}>
             {user ? (
               <>
@@ -196,7 +203,7 @@ function Navbar() {
                 >
                   <Box sx={{ px: 2, py: 1 }}>
                     <Typography variant="subtitle2" fontWeight="bold">
-                      {user?.nome || 'Usuário'}
+                      {user?.nome || 'Atleta'}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {user?.email}
@@ -205,15 +212,18 @@ function Navbar() {
 
                   <Divider />
 
+                  {/* Link para o Painel Administrativo Completo (Apenas Admin) */}
                   {isAdmin && (
-                    <MenuItem onClick={() => safeNavigate('/admin')}>
+                    <MenuItem onClick={() => handleUserNavigate('/admin')}>
                       <DashboardIcon sx={{ mr: 1, fontSize: 'small' }} /> Painel Admin
                     </MenuItem>
                   )}
 
-                  <MenuItem onClick={() => safeNavigate(profileRoute)}>
+                  <MenuItem onClick={() => handleUserNavigate('/perfil-atleta')}>
                     Meu Perfil
                   </MenuItem>
+
+                  <Divider />
 
                   <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
                     Sair

@@ -8,7 +8,20 @@ const coraClient = require('../services/coraClient');
 const pagbankClient = require('../services/pagbankClient');
 
 // Garante que todos os modelos necessários estão importados
-const { Filiacao, MetodoPagamento, Pagamento, Usuario, Atleta, Modalidade } = db; 
+const {
+  Filiacao,
+  MetodoPagamento,
+  Pagamento,
+  Usuario,
+  Atleta,
+  Modalidade,
+  CompeticaoInscricao,
+  CompeticaoEvento,
+  CompeticaoModalidade,
+  CompeticaoAutorizacao,
+} = db;
+
+const { requiresAutorizacaoEspecial, authorityByEscopo } = require('../services/competicaoRules');
 
 function sha256Hex(str) {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
@@ -45,7 +58,18 @@ exports.getPagamentoById = async (req, res) => {
         {
           model: Filiacao,
           as: 'filiacao',
-          attributes: ['atleta_id'] // Pega o ID do atleta dono da filiação
+          attributes: ['atleta_id'],
+          required: false,
+        },
+        {
+          model: CompeticaoInscricao,
+          as: 'competicaoInscricao',
+          attributes: ['id', 'atleta_id', 'evento_id', 'competicao_modalidade_id'],
+          required: false,
+          include: [
+            { model: CompeticaoEvento, as: 'evento', attributes: ['id', 'nome'] },
+            { model: CompeticaoModalidade, as: 'competicaoModalidade', attributes: ['id', 'nome'] }
+          ]
         },
         {
           model: MetodoPagamento,
@@ -60,8 +84,9 @@ exports.getPagamentoById = async (req, res) => {
       return res.status(404).json({ msg: 'Pagamento não encontrado.' });
     }
 
-    // Verifica Permissão: O usuário logado é o atleta dono da filiação OU é um admin?
-    const isOwner = pagamento.filiacao.atleta_id === usuarioId;
+    // Verifica Permissão: O usuário logado é o atleta dono (filiação OU inscrição) OU é um admin
+    const ownerAtletaId = pagamento.filiacao?.atleta_id || pagamento.competicaoInscricao?.atleta_id || null;
+    const isOwner = ownerAtletaId === usuarioId;
     const isAdmin = req.usuario.tipo === 'admin';
 
     if (!isOwner && !isAdmin) {
@@ -71,10 +96,18 @@ exports.getPagamentoById = async (req, res) => {
 
     const provider = safeProviderFromMetodo(pagamento.metodoPagamento) || null;
 
+    const context = pagamento.filiacao_id ? 'filiacao' : (pagamento.competicao_inscricao_id ? 'competicao' : 'outro');
+    const descricao = context === 'competicao'
+      ? `Inscrição #${pagamento.competicaoInscricao?.id || pagamento.competicao_inscricao_id}`
+      : 'Taxa de Filiação';
+
     // Retorna os dados necessários para o front-end exibir
     res.status(200).json({
       pagamentoId: pagamento.id,
       filiacaoId: pagamento.filiacao_id,
+      inscricaoCompeticaoId: pagamento.competicao_inscricao_id || null,
+      context,
+      descricao,
       metodoPagamento: {
         id: pagamento.metodoPagamento?.id,
         nome: pagamento.metodoPagamento?.nome,
@@ -504,10 +537,34 @@ exports.receberWebhook = async (req, res) => {
     });
 
     if (nossoNovoStatus === 'pago') {
-      await Filiacao.update(
-        { status: 'ativo' },
-        { where: { id: pagamento.filiacao_id } }
-      );
+      // Filiação
+      if (pagamento.filiacao_id) {
+        await Filiacao.update(
+          { status: 'ativo' },
+          { where: { id: pagamento.filiacao_id } }
+        );
+      }
+
+      // Inscrição de competição
+      if (pagamento.competicao_inscricao_id) {
+        const inscricao = await CompeticaoInscricao.findByPk(pagamento.competicao_inscricao_id, {
+          include: [{ model: CompeticaoEvento, as: 'evento', attributes: ['id', 'escopo'] }]
+        });
+
+        if (inscricao) {
+          const precisa = requiresAutorizacaoEspecial(inscricao.idade_anos);
+          if (precisa) {
+            const authority = authorityByEscopo(inscricao.evento?.escopo);
+            await CompeticaoAutorizacao.findOrCreate({
+              where: { evento_id: inscricao.evento_id, atleta_id: inscricao.atleta_id, authority },
+              defaults: { status: 'PENDENTE', requested_at: new Date() }
+            });
+            await inscricao.update({ status: 'AGUARDANDO_AUTORIZACAO' });
+          } else {
+            await inscricao.update({ status: 'CONFIRMADA' });
+          }
+        }
+      }
     }
 
     return res.status(200).send('OK');
@@ -644,10 +701,34 @@ exports.receberWebhookCora = async (req, res) => {
     await pagamento.update(patch);
 
     if (nossoNovoStatus === 'pago') {
-      await Filiacao.update(
-        { status: 'ativo' },
-        { where: { id: pagamento.filiacao_id } }
-      );
+      // Filiação
+      if (pagamento.filiacao_id) {
+        await Filiacao.update(
+          { status: 'ativo' },
+          { where: { id: pagamento.filiacao_id } }
+        );
+      }
+
+      // Inscrição de competição
+      if (pagamento.competicao_inscricao_id) {
+        const inscricao = await CompeticaoInscricao.findByPk(pagamento.competicao_inscricao_id, {
+          include: [{ model: CompeticaoEvento, as: 'evento', attributes: ['id', 'escopo'] }]
+        });
+
+        if (inscricao) {
+          const precisa = requiresAutorizacaoEspecial(inscricao.idade_anos);
+          if (precisa) {
+            const authority = authorityByEscopo(inscricao.evento?.escopo);
+            await CompeticaoAutorizacao.findOrCreate({
+              where: { evento_id: inscricao.evento_id, atleta_id: inscricao.atleta_id, authority },
+              defaults: { status: 'PENDENTE', requested_at: new Date() }
+            });
+            await inscricao.update({ status: 'AGUARDANDO_AUTORIZACAO' });
+          } else {
+            await inscricao.update({ status: 'CONFIRMADA' });
+          }
+        }
+      }
     }
 
     return res.status(200).send('OK');
