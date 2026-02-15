@@ -4,8 +4,11 @@ const {
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
   modalidadePermitidaPorGrupo,
+  pesoDivisoesByGrupo,
   validatePesoMinimo,
-  divisaoPesoPlaceholder,
+  divisaoPesoFromGrupo,
+  divisaoPesoLabel,
+  fightConfigByModalidadeCode,
   requiresAutorizacaoEspecial,
   authorityByEscopo,
   hasMinAntecedenciaDias,
@@ -231,17 +234,23 @@ exports.elegibilidadeEvento = async (req, res) => {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
+    const pesoTabela = pesoDivisoesByGrupo(grupoEtario);
+
     const result = [];
     for (const m of (evento.modalidades || [])) {
       const requiredModalidadeId = m.filiacao_modalidade_id;
 
+      const fightConfig = fightConfigByModalidadeCode(m.code, idadeAnos);
+
       if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
         result.push({
           competicao_modalidade_id: m.id,
+          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
           elegivel: false,
-          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`
+          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`,
+          fight_config: fightConfig,
         });
         continue;
       }
@@ -249,10 +258,12 @@ exports.elegibilidadeEvento = async (req, res) => {
       if (!requiredModalidadeId) {
         result.push({
           competicao_modalidade_id: m.id,
+          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
           elegivel: false,
-          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).'
+          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).',
+          fight_config: fightConfig,
         });
         continue;
       }
@@ -261,24 +272,36 @@ exports.elegibilidadeEvento = async (req, res) => {
       if (!filiacao) {
         result.push({
           competicao_modalidade_id: m.id,
+          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
           elegivel: false,
-          motivo: 'Você não possui filiação ATIVA na modalidade exigida.'
+          motivo: 'Você não possui filiação ATIVA na modalidade exigida.',
+          fight_config: fightConfig,
         });
         continue;
       }
 
       result.push({
         competicao_modalidade_id: m.id,
+        code: m.code,
         nome: m.nome,
         tipo: m.tipo,
         elegivel: true,
         filiacao_id: filiacao.id,
+        fight_config: fightConfig,
       });
     }
 
-    res.json({ eventoId: evento.id, status: evento.status, idadeAnos, grupoEtario, modalidades: result });
+    res.json({
+      eventoId: evento.id,
+      status: evento.status,
+      idadeAnos,
+      grupoEtario,
+      peso_divisoes: pesoTabela?.cortes || null,
+      peso_acima_de: pesoTabela?.acimaDe || null,
+      modalidades: result,
+    });
   } catch (err) {
     console.error('Erro ao calcular elegibilidade:', err);
     res.status(500).send('Erro no servidor.');
@@ -339,7 +362,10 @@ exports.criarInscricao = async (req, res) => {
     if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
 
     const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
-    const divisaoPeso = divisaoPesoPlaceholder(peso_kg);
+    const divisaoPeso = divisaoPesoFromGrupo(grupoEtario, peso_kg);
+    if (!divisaoPeso) {
+      return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso (tabela oficial).' });
+    }
 
     // Regulamento: categoria por nível técnico (faixas/graduações)
     const catCheck = validateCategoriaCombate(categoria_combate, filiacao?.graduacao?.nome);
@@ -389,7 +415,12 @@ exports.criarInscricao = async (req, res) => {
       status,
     });
 
-    res.status(201).json(inscricao);
+    // Enriquecemos a resposta com labels úteis para o frontend (sem alterar o schema).
+    const payload = inscricao.toJSON();
+    payload.divisao_peso_label = divisaoPesoLabel(divisaoPeso);
+    payload.fight_config = fightConfigByModalidadeCode(mod.code, idadeAnos);
+
+    res.status(201).json(payload);
   } catch (err) {
     console.error('Erro ao criar inscrição:', err);
     // Constraint do MySQL (unique) vira erro aqui
@@ -412,7 +443,14 @@ exports.minhasInscricoes = async (req, res) => {
       ]
     });
 
-    res.json(inscricoes);
+    const payload = (inscricoes || []).map((i) => {
+      const j = i.toJSON();
+      j.divisao_peso_label = divisaoPesoLabel(j.divisao_peso);
+      j.fight_config = fightConfigByModalidadeCode(j.competicaoModalidade?.code, j.idade_anos);
+      return j;
+    });
+
+    res.json(payload);
   } catch (err) {
     console.error('Erro ao listar minhas inscrições:', err);
     res.status(500).send('Erro no servidor.');

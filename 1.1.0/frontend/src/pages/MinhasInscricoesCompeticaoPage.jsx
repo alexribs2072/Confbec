@@ -109,6 +109,16 @@ export default function MinhasInscricoesCompeticaoPage() {
                   <Typography variant="body2" color="text.secondary">
                     Grupo etário: <strong>{i.grupo_etario}</strong> • Divisão peso: <strong>{i.divisao_peso}</strong>
                   </Typography>
+                  {i.divisao_peso_label && (
+                    <Typography variant="body2" color="text.secondary">
+                      Divisão (regulamento): <strong>{i.divisao_peso_label}</strong>
+                    </Typography>
+                  )}
+                  {i.fight_config?.label && (
+                    <Typography variant="body2" color="text.secondary">
+                      Rounds: <strong>{i.fight_config.label}</strong>
+                    </Typography>
+                  )}
                 </CardContent>
 
                 <CardActions sx={{ px: 2, pb: 2, gap: 1 }}>

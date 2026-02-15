@@ -55,7 +55,16 @@ function modalidadePermitidaPorGrupo(grupoEtario, competicaoModalidadeCode) {
   // Juvenil/Adulto: sem restrição aqui (depende do que o evento habilitar)
   if (g === 'JUVENIL' || g === 'ADULTO') return true;
 
-  const base = new Set(['POINT_FIGHT', 'KB_LIGHT', 'K1_LIGHT', 'BRAZILIAN_GRAPPLING']);
+  const base = new Set([
+    'POINT_FIGHT',
+    'KB_LIGHT',
+    'K1_LIGHT',
+    'BRAZILIAN_GRAPPLING',
+    // Boxe Clássico/Amador (tabela de rounds/duração)
+    'BOXE_CLASSICO_AMADOR',
+    'BOXE_CLASSICO',
+    'BOXE_AMADOR',
+  ]);
   if (g === 'KADETE') {
     base.add('KB_SEMI');
     return base.has(code);
@@ -68,22 +77,26 @@ function modalidadePermitidaPorGrupo(grupoEtario, competicaoModalidadeCode) {
 }
 
 /**
- * Divisões de peso: o regulamento menciona que seguem tabelas oficiais (Art. 08),
- * mas não inclui os limites exatos.
- * Aqui aplicamos apenas o peso mínimo por grupo (para impedir inscrições inválidas)
- * e mantemos uma divisão placeholder até a tabela oficial ser adicionada.
+ * Divisões de peso (Art. 08) – tabelas oficiais.
+ * Observação: a tabela é apresentada como cortes (ex.: 55, 60, 65...).
+ * Interpretamos como "até X kg" (inclusive) e a última como "acima de X".
  */
+const PESO_DIVISOES = {
+  KADETE: { cortes: [25, 35, 45, 55, 65, 75, 85, 95, 100], acimaDe: 100 },
+  JUVENIL: { cortes: [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95], acimaDe: 95 },
+  ADULTO: { cortes: [55, 60, 65, 70, 75, 80, 85, 90, 95], acimaDe: 95 },
+  MASTER: { cortes: [60, 70, 80, 90], acimaDe: 90 },
+  MASTER2: { cortes: [60, 70, 80, 90], acimaDe: 90 },
+};
+
+function pesoDivisoesByGrupo(grupoEtario) {
+  const g = String(grupoEtario || '').toUpperCase();
+  return PESO_DIVISOES[g] || null;
+}
+
 function minPesoPorGrupo(grupoEtario) {
-  switch (String(grupoEtario || '').toUpperCase()) {
-    case 'KADETE': return 25;
-    case 'JUVENIL': return 40;
-    case 'ADULTO': return 55;
-    case 'MASTER':
-    case 'MASTER2':
-      return 60;
-    default:
-      return null;
-  }
+  const t = pesoDivisoesByGrupo(grupoEtario);
+  return t?.cortes?.[0] ?? null;
 }
 
 function validatePesoMinimo(grupoEtario, pesoKg) {
@@ -91,14 +104,77 @@ function validatePesoMinimo(grupoEtario, pesoKg) {
   const n = Number(pesoKg);
   if (!Number.isFinite(n)) return { ok: false, msg: 'Peso inválido.' };
   if (min == null) return { ok: false, msg: 'Grupo etário inválido.' };
-  if (n < min) return { ok: false, msg: `Peso mínimo para ${grupoEtario} é ${min}kg (tabela oficial).` };
+  if (n < min) return { ok: false, msg: `Peso mínimo para ${grupoEtario} é ${min}kg (conforme tabela oficial).` };
   return { ok: true };
 }
 
-function divisaoPesoPlaceholder(pesoKg) {
+/**
+ * Retorna um código curto (<= 20 chars) para salvar no banco.
+ * Exemplos: ATE_70 / ACIMA_95
+ */
+function divisaoPesoFromGrupo(grupoEtario, pesoKg) {
+  const t = pesoDivisoesByGrupo(grupoEtario);
   const n = Number(pesoKg);
-  if (!Number.isFinite(n)) return 'PENDENTE';
-  return `ATE_${Math.ceil(n)}`.slice(0, 20);
+  if (!t || !Number.isFinite(n)) return null;
+
+  for (const c of t.cortes) {
+    if (n <= c) return `ATE_${c}`;
+  }
+  return `ACIMA_${t.acimaDe}`;
+}
+
+function divisaoPesoLabel(divisaoPesoCode) {
+  const code = String(divisaoPesoCode || '').toUpperCase();
+  if (code.startsWith('ATE_')) {
+    const n = Number(code.replace('ATE_', ''));
+    if (Number.isFinite(n)) return `Até ${n} kg`;
+  }
+  if (code.startsWith('ACIMA_')) {
+    const n = Number(code.replace('ACIMA_', ''));
+    if (Number.isFinite(n)) return `Acima de ${n} kg`;
+  }
+  return code || '—';
+}
+
+// =========================
+// Dinâmica de combate (Boxe Clássico/Amador)
+// =========================
+
+function boxeRoundsConfigFromAge(ageYears) {
+  const age = Number(ageYears);
+  if (!Number.isFinite(age) || age < 5) return null;
+
+  // Tabela 1 (Rounds e Duração - Boxe Clássico/Amador)
+  // Kadete I: 05 a 10 -> 3x1min (descanso 1min)
+  // Kadete II/Juvenil: 11 a 17 -> 3x2min (descanso 1min)
+  // Adulto/Master 1: 18 a 55 -> 3x3min (descanso 1min)
+  // Master 2: 56+ -> 3x2min (descanso 1min)
+  const rounds = 3;
+  const descansoMin = 1;
+
+  let duracaoMin = 2;
+  if (age <= 10) duracaoMin = 1;
+  else if (age <= 17) duracaoMin = 2;
+  else if (age <= 55) duracaoMin = 3;
+  else duracaoMin = 2;
+
+  return {
+    rounds,
+    duracao_segundos: duracaoMin * 60,
+    descanso_segundos: descansoMin * 60,
+    label: `${rounds}x${duracaoMin}min (descanso ${descansoMin}min)`,
+  };
+}
+
+function fightConfigByModalidadeCode(competicaoModalidadeCode, ageYears) {
+  const code = String(competicaoModalidadeCode || '').toUpperCase();
+  if (!code) return null;
+
+  if (code === 'BOXE_CLASSICO_AMADOR' || code === 'BOXE_CLASSICO' || code === 'BOXE_AMADOR') {
+    return boxeRoundsConfigFromAge(ageYears);
+  }
+
+  return null;
 }
 
 /**
@@ -172,9 +248,13 @@ module.exports = {
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
   modalidadePermitidaPorGrupo,
+  pesoDivisoesByGrupo,
   minPesoPorGrupo,
   validatePesoMinimo,
-  divisaoPesoPlaceholder,
+  divisaoPesoFromGrupo,
+  divisaoPesoLabel,
+  boxeRoundsConfigFromAge,
+  fightConfigByModalidadeCode,
   requiresAutorizacaoEspecial,
   authorityByEscopo,
   hasMinAntecedenciaDias,
