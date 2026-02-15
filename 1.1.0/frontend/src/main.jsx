@@ -48,6 +48,7 @@ import ManageGraduacoesPage from './pages/admin/ManageGraduacoesPage.jsx';
 import ManageNoticiasPage from './pages/admin/ManageNoticiasPage.jsx';
 import ManagePagamentosPage from './pages/admin/ManagePagamentosPage.jsx';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage.jsx';
+import ManageCompeticoesPage from './pages/admin/ManageCompeticoesPage.jsx';
 
 const router = createBrowserRouter([
   {
@@ -85,6 +86,7 @@ const router = createBrowserRouter([
       { index: true, element: <AdminDashboardPage /> },
       { path: 'modalidades', element: <ManageModalidadesPage /> },
       { path: 'graduacoes', element: <ManageGraduacoesPage /> },
+      { path: 'competicoes', element: <ManageCompeticoesPage /> },
       { path: 'federacoes', element: <ManageFederacoesPage /> },
       { path: 'academias', element: <ManageAcademiasPage /> },
       { path: 'noticias', element: <ManageNoticiasPage /> },

@@ -1,0 +1,219 @@
+diff --git a/1.1.0/backend/controllers/competicaoController.js b/1.1.0/backend/controllers/competicaoController.js
+index 990bf1c..0bf148a 100644
+--- a/1.1.0/backend/controllers/competicaoController.js
++++ b/1.1.0/backend/controllers/competicaoController.js
+@@ -1,4 +1,19 @@
+ const db = require('../models');
++const {
++  Atleta,
++  Usuario,
++  Filiacao,
++  Graduacao,
++  Modalidade,
++  MetodoPagamento,
++  Pagamento,
++  CompeticaoEvento,
++  CompeticaoModalidade,
++  CompeticaoInscricao,
++  CompeticaoAutorizacao,
++} = db;
++
++const { Op } = db.Sequelize;
+ const {
+   calcAgeYears,
+   grupoEtarioFromAge,
+@@ -144,6 +159,26 @@ exports.atualizarEvento = async (req, res) => {
+   }
+ };
+ 
++// "Delete" seguro: marca como CANCELADO.
++// (Mantém histórico e evita quebrar FK/inscrições.)
++exports.excluirEvento = async (req, res) => {
++  try {
++    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
++    if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
++
++    // Se já está cancelado, é idempotente.
++    if (evento.status === 'CANCELADO') {
++      return res.json({ msg: 'Evento já está cancelado.', evento });
++    }
++
++    await evento.update({ status: 'CANCELADO' });
++    return res.json({ msg: 'Evento cancelado com sucesso.', evento });
++  } catch (err) {
++    console.error('Erro ao cancelar evento:', err);
++    res.status(500).send('Erro no servidor.');
++  }
++};
++
+ exports.atualizarModalidadesDoEvento = async (req, res) => {
+   try {
+     const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
+diff --git a/1.1.0/backend/routes/competicaoRoutes.js b/1.1.0/backend/routes/competicaoRoutes.js
+index aa33f81..5074d2d 100644
+--- a/1.1.0/backend/routes/competicaoRoutes.js
++++ b/1.1.0/backend/routes/competicaoRoutes.js
+@@ -10,6 +10,7 @@ router.get('/eventos/:eventoId', protegerOpcional, competicaoController.getEvent
+ 
+ router.post('/eventos', proteger, checkAdmin, competicaoController.criarEvento);
+ router.put('/eventos/:eventoId', proteger, checkAdmin, competicaoController.atualizarEvento);
++router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.excluirEvento);
+ router.put('/eventos/:eventoId/modalidades', proteger, checkAdmin, competicaoController.atualizarModalidadesDoEvento);
+ 
+ // ===== Modalidades de competição =====
+diff --git a/1.1.0/frontend/frontend/src/layouts/AdminLayout.jsx b/1.1.0/frontend/frontend/src/layouts/AdminLayout.jsx
+index 58f1ccd..0c6b66e 100644
+--- a/1.1.0/frontend/frontend/src/layouts/AdminLayout.jsx
++++ b/1.1.0/frontend/frontend/src/layouts/AdminLayout.jsx
+@@ -18,6 +18,7 @@ import Avatar from '@mui/material/Avatar'; // Importado Avatar
+ import DashboardIcon from '@mui/icons-material/Dashboard';
+ import CategoryIcon from '@mui/icons-material/Category';
+ import StarIcon from '@mui/icons-material/Star';
++import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+ import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+ import StoreIcon from '@mui/icons-material/Store';
+ import PaymentIcon from '@mui/icons-material/Payment';
+@@ -139,6 +140,13 @@ function AdminLayout() {
+             </ListItemButton>
+           </ListItem>
+ 
++          <ListItem disablePadding>
++            <ListItemButton component={RouterLink} to="/admin/competicoes" selected={isActive('/admin/competicoes')} sx={menuButtonStyle('/admin/competicoes')}>
++              <ListItemIcon sx={{ color: isActive('/admin/competicoes') ? 'white' : 'inherit' }}> <EmojiEventsIcon /> </ListItemIcon>
++              <ListItemText primary="Competições" />
++            </ListItemButton>
++          </ListItem>
++
+           <Typography variant="overline" sx={{ px: 3, mt: 2, mb: 1, display: 'block', color: 'text.secondary', fontWeight: 'bold', fontSize: '0.7rem' }}>
+               Institucional
+           </Typography>
+diff --git a/1.1.0/frontend/frontend/src/main.jsx b/1.1.0/frontend/frontend/src/main.jsx
+index 6ad54d4..a13d997 100644
+--- a/1.1.0/frontend/frontend/src/main.jsx
++++ b/1.1.0/frontend/frontend/src/main.jsx
+@@ -48,6 +48,7 @@ import ManageGraduacoesPage from './pages/admin/ManageGraduacoesPage.jsx';
+ import ManageNoticiasPage from './pages/admin/ManageNoticiasPage.jsx';
+ import ManagePagamentosPage from './pages/admin/ManagePagamentosPage.jsx';
+ import AdminDashboardPage from './pages/admin/AdminDashboardPage.jsx';
++import ManageCompeticoesPage from './pages/admin/ManageCompeticoesPage.jsx';
+ 
+ const router = createBrowserRouter([
+   {
+@@ -85,6 +86,7 @@ const router = createBrowserRouter([
+       { index: true, element: <AdminDashboardPage /> },
+       { path: 'modalidades', element: <ManageModalidadesPage /> },
+       { path: 'graduacoes', element: <ManageGraduacoesPage /> },
++      { path: 'competicoes', element: <ManageCompeticoesPage /> },
+       { path: 'federacoes', element: <ManageFederacoesPage /> },
+       { path: 'academias', element: <ManageAcademiasPage /> },
+       { path: 'noticias', element: <ManageNoticiasPage /> },
+diff --git a/1.1.0/frontend/frontend/src/pages/admin/AdminDashboardPage.jsx b/1.1.0/frontend/frontend/src/pages/admin/AdminDashboardPage.jsx
+index e84faed..dc8d1f0 100644
+--- a/1.1.0/frontend/frontend/src/pages/admin/AdminDashboardPage.jsx
++++ b/1.1.0/frontend/frontend/src/pages/admin/AdminDashboardPage.jsx
+@@ -18,6 +18,7 @@ import AssignmentIndIcon from '@mui/icons-material/AssignmentInd'; // Filiaçõe
+ import WarningIcon from '@mui/icons-material/Warning'; // Pendências
+ import NewspaperIcon from '@mui/icons-material/Newspaper'; // Notícias
+ import PaymentIcon from '@mui/icons-material/Payment';
++import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+ 
+ function AdminDashboardPage() {
+   const { user } = useAuth();
+@@ -207,6 +208,19 @@ function AdminDashboardPage() {
+             Métodos de Pagamento
+           </Button>
+         </Grid>
++
++        <Grid item xs={12} sm={4}>
++          <Button 
++            fullWidth 
++            variant="outlined" 
++            size="large" 
++            startIcon={<EmojiEventsIcon />}
++            onClick={() => navigate('/admin/competicoes')}
++            sx={{ p: 2, justifyContent: 'flex-start' }}
++          >
++            Cadastrar Competição
++          </Button>
++        </Grid>
+       </Grid>
+ 
+     </Container>
+diff --git a/1.1.0/frontend/src/layouts/AdminLayout.jsx b/1.1.0/frontend/src/layouts/AdminLayout.jsx
+index 58f1ccd..0c6b66e 100644
+--- a/1.1.0/frontend/src/layouts/AdminLayout.jsx
++++ b/1.1.0/frontend/src/layouts/AdminLayout.jsx
+@@ -18,6 +18,7 @@ import Avatar from '@mui/material/Avatar'; // Importado Avatar
+ import DashboardIcon from '@mui/icons-material/Dashboard';
+ import CategoryIcon from '@mui/icons-material/Category';
+ import StarIcon from '@mui/icons-material/Star';
++import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+ import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+ import StoreIcon from '@mui/icons-material/Store';
+ import PaymentIcon from '@mui/icons-material/Payment';
+@@ -139,6 +140,13 @@ function AdminLayout() {
+             </ListItemButton>
+           </ListItem>
+ 
++          <ListItem disablePadding>
++            <ListItemButton component={RouterLink} to="/admin/competicoes" selected={isActive('/admin/competicoes')} sx={menuButtonStyle('/admin/competicoes')}>
++              <ListItemIcon sx={{ color: isActive('/admin/competicoes') ? 'white' : 'inherit' }}> <EmojiEventsIcon /> </ListItemIcon>
++              <ListItemText primary="Competições" />
++            </ListItemButton>
++          </ListItem>
++
+           <Typography variant="overline" sx={{ px: 3, mt: 2, mb: 1, display: 'block', color: 'text.secondary', fontWeight: 'bold', fontSize: '0.7rem' }}>
+               Institucional
+           </Typography>
+diff --git a/1.1.0/frontend/src/main.jsx b/1.1.0/frontend/src/main.jsx
+index 6ad54d4..a13d997 100644
+--- a/1.1.0/frontend/src/main.jsx
++++ b/1.1.0/frontend/src/main.jsx
+@@ -48,6 +48,7 @@ import ManageGraduacoesPage from './pages/admin/ManageGraduacoesPage.jsx';
+ import ManageNoticiasPage from './pages/admin/ManageNoticiasPage.jsx';
+ import ManagePagamentosPage from './pages/admin/ManagePagamentosPage.jsx';
+ import AdminDashboardPage from './pages/admin/AdminDashboardPage.jsx';
++import ManageCompeticoesPage from './pages/admin/ManageCompeticoesPage.jsx';
+ 
+ const router = createBrowserRouter([
+   {
+@@ -85,6 +86,7 @@ const router = createBrowserRouter([
+       { index: true, element: <AdminDashboardPage /> },
+       { path: 'modalidades', element: <ManageModalidadesPage /> },
+       { path: 'graduacoes', element: <ManageGraduacoesPage /> },
++      { path: 'competicoes', element: <ManageCompeticoesPage /> },
+       { path: 'federacoes', element: <ManageFederacoesPage /> },
+       { path: 'academias', element: <ManageAcademiasPage /> },
+       { path: 'noticias', element: <ManageNoticiasPage /> },
+diff --git a/1.1.0/frontend/src/pages/admin/AdminDashboardPage.jsx b/1.1.0/frontend/src/pages/admin/AdminDashboardPage.jsx
+index e84faed..dc8d1f0 100644
+--- a/1.1.0/frontend/src/pages/admin/AdminDashboardPage.jsx
++++ b/1.1.0/frontend/src/pages/admin/AdminDashboardPage.jsx
+@@ -18,6 +18,7 @@ import AssignmentIndIcon from '@mui/icons-material/AssignmentInd'; // Filiaçõe
+ import WarningIcon from '@mui/icons-material/Warning'; // Pendências
+ import NewspaperIcon from '@mui/icons-material/Newspaper'; // Notícias
+ import PaymentIcon from '@mui/icons-material/Payment';
++import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+ 
+ function AdminDashboardPage() {
+   const { user } = useAuth();
+@@ -207,6 +208,19 @@ function AdminDashboardPage() {
+             Métodos de Pagamento
+           </Button>
+         </Grid>
++
++        <Grid item xs={12} sm={4}>
++          <Button 
++            fullWidth 
++            variant="outlined" 
++            size="large" 
++            startIcon={<EmojiEventsIcon />}
++            onClick={() => navigate('/admin/competicoes')}
++            sx={{ p: 2, justifyContent: 'flex-start' }}
++          >
++            Cadastrar Competição
++          </Button>
++        </Grid>
+       </Grid>
+ 
+     </Container>

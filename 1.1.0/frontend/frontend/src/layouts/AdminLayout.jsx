@@ -18,6 +18,7 @@ import Avatar from '@mui/material/Avatar'; // Importado Avatar
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import CategoryIcon from '@mui/icons-material/Category';
 import StarIcon from '@mui/icons-material/Star';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import StoreIcon from '@mui/icons-material/Store';
 import PaymentIcon from '@mui/icons-material/Payment';
@@ -136,6 +137,13 @@ function AdminLayout() {
             <ListItemButton component={RouterLink} to="/admin/graduacoes" selected={isActive('/admin/graduacoes')} sx={menuButtonStyle('/admin/graduacoes')}>
               <ListItemIcon sx={{ color: isActive('/admin/graduacoes') ? 'white' : 'inherit' }}> <StarIcon /> </ListItemIcon>
               <ListItemText primary="Graduações" />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem disablePadding>
+            <ListItemButton component={RouterLink} to="/admin/competicoes" selected={isActive('/admin/competicoes')} sx={menuButtonStyle('/admin/competicoes')}>
+              <ListItemIcon sx={{ color: isActive('/admin/competicoes') ? 'white' : 'inherit' }}> <EmojiEventsIcon /> </ListItemIcon>
+              <ListItemText primary="Competições" />
             </ListItemButton>
           </ListItem>
 

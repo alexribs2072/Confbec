@@ -1,5 +1,20 @@
 const db = require('../models');
 const {
+  Atleta,
+  Usuario,
+  Filiacao,
+  Graduacao,
+  Modalidade,
+  MetodoPagamento,
+  Pagamento,
+  CompeticaoEvento,
+  CompeticaoModalidade,
+  CompeticaoInscricao,
+  CompeticaoAutorizacao,
+} = db;
+
+const { Op } = db.Sequelize;
+const {
   calcAgeYears,
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
@@ -143,6 +158,26 @@ exports.atualizarEvento = async (req, res) => {
     res.json(evento);
   } catch (err) {
     console.error('Erro ao atualizar evento:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+// "Delete" seguro: marca como CANCELADO.
+// (Mantém histórico e evita quebrar FK/inscrições.)
+exports.excluirEvento = async (req, res) => {
+  try {
+    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
+    if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
+
+    // Se já está cancelado, é idempotente.
+    if (evento.status === 'CANCELADO') {
+      return res.json({ msg: 'Evento já está cancelado.', evento });
+    }
+
+    await evento.update({ status: 'CANCELADO' });
+    return res.json({ msg: 'Evento cancelado com sucesso.', evento });
+  } catch (err) {
+    console.error('Erro ao cancelar evento:', err);
     res.status(500).send('Erro no servidor.');
   }
 };

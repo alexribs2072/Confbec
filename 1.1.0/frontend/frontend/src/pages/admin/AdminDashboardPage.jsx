@@ -18,6 +18,7 @@ import AssignmentIndIcon from '@mui/icons-material/AssignmentInd'; // Filiaçõe
 import WarningIcon from '@mui/icons-material/Warning'; // Pendências
 import NewspaperIcon from '@mui/icons-material/Newspaper'; // Notícias
 import PaymentIcon from '@mui/icons-material/Payment';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 
 function AdminDashboardPage() {
   const { user } = useAuth();
@@ -205,6 +206,19 @@ function AdminDashboardPage() {
             sx={{ p: 2, justifyContent: 'flex-start' }}
           >
             Métodos de Pagamento
+          </Button>
+        </Grid>
+
+        <Grid item xs={12} sm={4}>
+          <Button 
+            fullWidth 
+            variant="outlined" 
+            size="large" 
+            startIcon={<EmojiEventsIcon />}
+            onClick={() => navigate('/admin/competicoes')}
+            sx={{ p: 2, justifyContent: 'flex-start' }}
+          >
+            Cadastrar Competição
           </Button>
         </Grid>
       </Grid>
