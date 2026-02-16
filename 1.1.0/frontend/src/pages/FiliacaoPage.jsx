@@ -5,10 +5,13 @@ import { useNavigate } from 'react-router-dom';
 
 // --- Importações MUI ---
 import {
-  Container, Typography, Box, Paper, Grid, Button,
+  Container, Typography, Box, Paper, Button,
   FormControl, InputLabel, Select, MenuItem, FormHelperText,
   CircularProgress, Alert, Divider, Zoom
 } from '@mui/material';
+import Grid from '@mui/material/Grid'; // ✅ Grid v2
+//import Grid from "@mui/material/Unstable_Grid2";
+
 import BusinessIcon from '@mui/icons-material/Business';
 import SportsMartialArtsIcon from '@mui/icons-material/SportsMartialArts';
 import SchoolIcon from '@mui/icons-material/School';
@@ -121,9 +124,9 @@ function FiliacaoPage() {
       <Paper elevation={3} sx={{ p: { xs: 3, md: 5 }, borderRadius: 3 }}>
         <form onSubmit={handleSubmit}>
           <Grid container spacing={3}>
-            
+
             {/* Academia */}
-            <Grid item xs={12}>
+            <Grid xs={12}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <BusinessIcon color="primary" sx={{ mr: 1 }} />
                 <Typography variant="subtitle1" fontWeight="600">Instituição</Typography>
@@ -143,10 +146,10 @@ function FiliacaoPage() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12}><Divider /></Grid>
+            <Grid xs={12}><Divider /></Grid>
 
             {/* Modalidade */}
-            <Grid item xs={12} sm={6}>
+            <Grid xs={12} sm={6}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <SportsMartialArtsIcon color="primary" sx={{ mr: 1 }} />
                 <Typography variant="subtitle1" fontWeight="600">Modalidade</Typography>
@@ -167,7 +170,7 @@ function FiliacaoPage() {
             </Grid>
 
             {/* Graduação (Dinâmica) */}
-            <Grid item xs={12} sm={6}>
+            <Grid xs={12} sm={6}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <SchoolIcon color="primary" sx={{ mr: 1 }} />
                 <Typography variant="subtitle1" fontWeight="600">Graduação Atual</Typography>
@@ -192,10 +195,10 @@ function FiliacaoPage() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12}><Divider /></Grid>
+            <Grid xs={12}><Divider /></Grid>
 
             {/* Professor */}
-            <Grid item xs={12}>
+            <Grid xs={12}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <SupervisorAccountIcon color="primary" sx={{ mr: 1 }} />
                 <Typography variant="subtitle1" fontWeight="600">Responsável Técnico</Typography>
@@ -216,7 +219,7 @@ function FiliacaoPage() {
             </Grid>
 
             {/* Botão de Ação */}
-            <Grid item xs={12} sx={{ mt: 2 }}>
+            <Grid xs={12} sx={{ mt: 2 }}>
               <Button
                 type="submit"
                 fullWidth
@@ -224,8 +227,8 @@ function FiliacaoPage() {
                 size="large"
                 disabled={submitting || !formData.graduacao_id}
                 startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
-                sx={{ 
-                  py: 1.5, 
+                sx={{
+                  py: 1.5,
                   fontWeight: 'bold',
                   borderRadius: 2,
                   boxShadow: 4

@@ -36,4 +36,5 @@ docker-compose.yml
 dist-ssr
 *.local
 .env.example
+*.sql
 backups/

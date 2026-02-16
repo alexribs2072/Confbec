@@ -35,17 +35,6 @@ function fmtDate(d) {
   }
 }
 
-function calcDivisaoPesoLabel(pesoKg, cortes, acimaDe) {
-  const n = Number(pesoKg);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (Array.isArray(cortes)) {
-    const c = cortes.find((x) => n <= Number(x));
-    if (c != null && Number.isFinite(Number(c))) return `Até ${Number(c)} kg`;
-  }
-  if (Number.isFinite(Number(acimaDe))) return `Acima de ${Number(acimaDe)} kg`;
-  return null;
-}
-
 export default function CompeticaoDetalhePage() {
   const { eventoId } = useParams();
   const navigate = useNavigate();
@@ -64,10 +53,6 @@ export default function CompeticaoDetalhePage() {
   const [categoria, setCategoria] = useState('COLORIDAS');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-
-  const divisaoPesoPreview = useMemo(() => {
-    return calcDivisaoPesoLabel(pesoKg, elig?.peso_divisoes, elig?.peso_acima_de);
-  }, [pesoKg, elig?.peso_divisoes, elig?.peso_acima_de]);
 
   const modalidades = useMemo(() => {
     return (elig?.modalidades || evento?.modalidades || []).slice();
@@ -193,10 +178,7 @@ export default function CompeticaoDetalhePage() {
                     secondary={
                       motivo
                         ? motivo
-                        : [
-                            m.tipo ? `Tipo: ${m.tipo}` : null,
-                            m.fight_config?.label ? `Boxe: ${m.fight_config.label}` : null,
-                          ].filter(Boolean).join(' • ')
+                        : (m.tipo ? `Tipo: ${m.tipo}` : null)
                     }
                   />
                   <ListItemSecondaryAction>
@@ -233,18 +215,6 @@ export default function CompeticaoDetalhePage() {
             {selectedModalidade?.nome}
           </Typography>
 
-          {elig?.grupoEtario && (
-            <Alert severity="info" sx={{ mb: 1 }}>
-              Categoria: <strong>{elig.grupoEtario}</strong>
-              {divisaoPesoPreview ? (
-                <> • Divisão prevista: <strong>{divisaoPesoPreview}</strong></>
-              ) : null}
-              {selectedModalidade?.fight_config?.label ? (
-                <> • Rounds: <strong>{selectedModalidade.fight_config.label}</strong></>
-              ) : null}
-            </Alert>
-          )}
-
           <TextField
             label="Peso (kg)"
             type="number"
@@ -268,8 +238,8 @@ export default function CompeticaoDetalhePage() {
           </TextField>
 
           {saveError && <Alert severity="error" sx={{ mt: 2 }}>{saveError}</Alert>}
-          <Alert severity="success" sx={{ mt: 2 }}>
-            As divisões de peso seguem o Regulamento Geral (tabelas oficiais). A divisão final será confirmada pela organização.
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            As divisões (peso/idade) são calculadas automaticamente e serão ajustadas quando o Regulamento Geral for carregado.
           </Alert>
         </DialogContent>
         <DialogActions>

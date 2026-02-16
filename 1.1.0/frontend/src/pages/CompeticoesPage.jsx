@@ -5,7 +5,6 @@ import axios from 'axios';
 import {
   Box,
   Typography,
-  Grid,
   Card,
   CardContent,
   CardActions,
@@ -14,6 +13,9 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
+import Grid from '@mui/material/Grid'; 
+
+
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -74,7 +76,7 @@ export default function CompeticoesPage() {
       ) : (
         <Grid container spacing={2}>
           {eventos.map((e) => (
-            <Grid item xs={12} md={6} lg={4} key={e.id}>
+            <Grid key={e.id} xs={12} md={6} lg={4}>
               <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
@@ -83,12 +85,18 @@ export default function CompeticoesPage() {
 
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                     <Chip size="small" label={e.escopo} variant="outlined" />
-                    <Chip size="small" label={e.status} color={e.status === 'INSCRICOES_ABERTAS' ? 'success' : 'default'} variant="outlined" />
+                    <Chip
+                      size="small"
+                      label={e.status}
+                      color={e.status === 'INSCRICOES_ABERTAS' ? 'success' : 'default'}
+                      variant="outlined"
+                    />
                   </Box>
 
                   <Typography variant="body2" color="text.secondary">
                     Data: <strong>{fmtDate(e.data_evento)}</strong>
                   </Typography>
+
                   {e.local && (
                     <Typography variant="body2" color="text.secondary">
                       Local: {e.local}
@@ -101,6 +109,7 @@ export default function CompeticoesPage() {
                     </Typography>
                   )}
                 </CardContent>
+
                 <CardActions sx={{ px: 2, pb: 2 }}>
                   <Button component={RouterLink} to={`/competicoes/${e.id}`} variant="contained" fullWidth>
                     Ver detalhes
