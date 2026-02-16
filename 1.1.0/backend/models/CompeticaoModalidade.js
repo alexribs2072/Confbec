@@ -22,12 +22,7 @@ const CompeticaoModalidade = sequelize.define('CompeticaoModalidade', {
     type: DataTypes.ENUM('TROCACAO', 'GRAPPLING', 'MISTO'),
     allowNull: false,
   },
-  // Submodalidade pertence a uma Modalidade (mãe) do módulo de filiações (ex: Kickboxing)
-  modalidade_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-  },
-  // Campo legado (mantido para compatibilidade). Preferir usar modalidade_id.
+  // Mapeia qual Modalidade (do módulo de filiações) habilita inscrição nessa modalidade de competição
   filiacao_modalidade_id: {
     type: DataTypes.INTEGER,
     allowNull: true,

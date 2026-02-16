@@ -1,30 +1,27 @@
 const db = require('../models');
+const { Op } = require('sequelize');
+
+// Models
 const {
   Atleta,
   Usuario,
   Filiacao,
   Graduacao,
-  Modalidade,
-  MetodoPagamento,
-  Pagamento,
   CompeticaoEvento,
   CompeticaoModalidade,
+  CompeticaoEventoModalidade,
   CompeticaoInscricao,
   CompeticaoAutorizacao,
-  CompeticaoEventoModalidade,
+  Pagamento,
+  MetodoPagamento,
 } = db;
-
-const { Op } = db.Sequelize;
 const {
   calcAgeYears,
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
   modalidadePermitidaPorGrupo,
-  pesoDivisoesByGrupo,
   validatePesoMinimo,
-  divisaoPesoFromGrupo,
-  divisaoPesoLabel,
-  fightConfigByModalidadeCode,
+  divisaoPesoPlaceholder,
   requiresAutorizacaoEspecial,
   authorityByEscopo,
   hasMinAntecedenciaDias,
@@ -54,8 +51,7 @@ async function getEventoOr404(eventoId, res) {
     include: [{
       model: CompeticaoModalidade,
       as: 'modalidades',
-      // expõe taxa por modalidade via tabela de junção
-      through: { attributes: ['taxa_inscricao'] }
+      through: { attributes: ['taxa_inscricao'] },
     }]
   });
   if (!evento) {
@@ -103,7 +99,7 @@ exports.listarEventos = async (req, res) => {
       include: [{
         model: CompeticaoModalidade,
         as: 'modalidades',
-        through: { attributes: ['taxa_inscricao'] }
+        through: { attributes: ['taxa_inscricao'] },
       }]
     });
 
@@ -172,70 +168,50 @@ exports.atualizarEvento = async (req, res) => {
   }
 };
 
-// "Delete" seguro: marca como CANCELADO.
-// (Mantém histórico e evita quebrar FK/inscrições.)
-exports.excluirEvento = async (req, res) => {
-  try {
-    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
-    if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
-
-    // Se já está cancelado, é idempotente.
-    if (evento.status === 'CANCELADO') {
-      return res.json({ msg: 'Evento já está cancelado.', evento });
-    }
-
-    await evento.update({ status: 'CANCELADO' });
-    return res.json({ msg: 'Evento cancelado com sucesso.', evento });
-  } catch (err) {
-    console.error('Erro ao cancelar evento:', err);
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
 exports.atualizarModalidadesDoEvento = async (req, res) => {
   try {
     const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
     if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
 
-    // Compatibilidade:
-    // - payload antigo: { competicao_modalidade_ids: [1,2,3] }
-    // - payload novo:   { modalidades: [{ id: 1, taxa_inscricao: 50.00 }, ...] }
-    const body = req.body || {};
-    const modalidadesPayload = Array.isArray(body.modalidades)
-      ? body.modalidades
-      : (Array.isArray(body.competicao_modalidade_ids)
-          ? body.competicao_modalidade_ids.map((id) => ({ id, taxa_inscricao: 0 }))
-          : null);
+    // Aceita dois formatos:
+    // 1) { competicao_modalidade_ids: [1,2,3] }
+    // 2) { modalidades: [{ id: 1, taxa_inscricao: 50.00 }, ...] }
+    const { competicao_modalidade_ids, modalidades } = req.body || {};
 
-    if (!Array.isArray(modalidadesPayload)) {
-      return res.status(400).json({ msg: 'Informe modalidades (array de {id, taxa_inscricao}) ou competicao_modalidade_ids (array).' });
+    let ids = [];
+    const taxaById = {};
+
+    if (Array.isArray(modalidades)) {
+      ids = modalidades.map(m => m?.id).filter(Boolean);
+      for (const m of modalidades) {
+        if (m?.id) taxaById[m.id] = Number(m.taxa_inscricao ?? 0);
+      }
+    } else if (Array.isArray(competicao_modalidade_ids)) {
+      ids = competicao_modalidade_ids;
+    } else {
+      return res.status(400).json({ msg: 'Informe competicao_modalidade_ids (array) ou modalidades (array de objetos).' });
     }
 
-    const ids = modalidadesPayload.map(m => m?.id).filter(Boolean);
-    if (ids.length === 0) {
-      // remove tudo
-      await CompeticaoEventoModalidade.destroy({ where: { evento_id: evento.id } });
-    } else {
-      const modalidades = await CompeticaoModalidade.findAll({ where: { id: { [Op.in]: ids } } });
-      if (modalidades.length !== ids.length) {
-        return res.status(400).json({ msg: 'Uma ou mais modalidades informadas são inválidas.' });
-      }
+    const mods = await CompeticaoModalidade.findAll({
+      where: { id: { [Op.in]: ids } }
+    });
 
-      // Recria vínculos na tabela de junção com taxa por modalidade
-      await CompeticaoEventoModalidade.destroy({ where: { evento_id: evento.id } });
-
-      const rows = modalidadesPayload.map((m) => ({
-        evento_id: evento.id,
-        competicao_modalidade_id: Number(m.id),
-        taxa_inscricao: Number(m.taxa_inscricao ?? 0),
-        created_at: new Date(),
-        updated_at: new Date(),
+    if (Array.isArray(modalidades)) {
+      const payload = mods.map(m => ({
+        ...m,
+        CompeticaoEventoModalidade: { taxa_inscricao: taxaById[m.id] ?? 0 }
       }));
-      await CompeticaoEventoModalidade.bulkCreate(rows);
+      await evento.setModalidades(payload);
+    } else {
+      await evento.setModalidades(mods);
     }
 
     const refreshed = await CompeticaoEvento.findByPk(evento.id, {
-      include: [{ model: CompeticaoModalidade, as: 'modalidades', through: { attributes: ['taxa_inscricao'] } }]
+      include: [{
+        model: CompeticaoModalidade,
+        as: 'modalidades',
+        through: { attributes: ['taxa_inscricao'] },
+      }]
     });
     res.json(refreshed);
   } catch (err) {
@@ -305,27 +281,17 @@ exports.elegibilidadeEvento = async (req, res) => {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
-    const pesoTabela = pesoDivisoesByGrupo(grupoEtario);
-
     const result = [];
     for (const m of (evento.modalidades || [])) {
       const requiredModalidadeId = m.filiacao_modalidade_id;
 
-      // taxa por modalidade (fallback: taxa do evento)
-      const taxaModalidade = Number(m?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
-
-      const fightConfig = fightConfigByModalidadeCode(m.code, idadeAnos);
-
       if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
         result.push({
           competicao_modalidade_id: m.id,
-          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
           elegivel: false,
-          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`,
-          fight_config: fightConfig,
+          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`
         });
         continue;
       }
@@ -333,13 +299,10 @@ exports.elegibilidadeEvento = async (req, res) => {
       if (!requiredModalidadeId) {
         result.push({
           competicao_modalidade_id: m.id,
-          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
           elegivel: false,
-          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).',
-          fight_config: fightConfig,
+          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).'
         });
         continue;
       }
@@ -348,38 +311,24 @@ exports.elegibilidadeEvento = async (req, res) => {
       if (!filiacao) {
         result.push({
           competicao_modalidade_id: m.id,
-          code: m.code,
           nome: m.nome,
           tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
           elegivel: false,
-          motivo: 'Você não possui filiação ATIVA na modalidade exigida.',
-          fight_config: fightConfig,
+          motivo: 'Você não possui filiação ATIVA na modalidade exigida.'
         });
         continue;
       }
 
       result.push({
         competicao_modalidade_id: m.id,
-        code: m.code,
         nome: m.nome,
         tipo: m.tipo,
-        taxa_inscricao: taxaModalidade,
         elegivel: true,
         filiacao_id: filiacao.id,
-        fight_config: fightConfig,
       });
     }
 
-    res.json({
-      eventoId: evento.id,
-      status: evento.status,
-      idadeAnos,
-      grupoEtario,
-      peso_divisoes: pesoTabela?.cortes || null,
-      peso_acima_de: pesoTabela?.acimaDe || null,
-      modalidades: result,
-    });
+    res.json({ eventoId: evento.id, status: evento.status, idadeAnos, grupoEtario, modalidades: result });
   } catch (err) {
     console.error('Erro ao calcular elegibilidade:', err);
     res.status(500).send('Erro no servidor.');
@@ -391,9 +340,14 @@ exports.criarInscricao = async (req, res) => {
     if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
     if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
 
-    const { competicao_modalidade_id, peso_kg, categoria_combate } = req.body || {};
-    if (!competicao_modalidade_id || !peso_kg || !categoria_combate) {
-      return res.status(400).json({ msg: 'Campos obrigatórios: competicao_modalidade_id, peso_kg, categoria_combate.' });
+    // Compatível com formato antigo (competicao_modalidade_id) e novo (competicao_modalidade_ids)
+    const { competicao_modalidade_id, competicao_modalidade_ids, peso_kg, categoria_combate } = req.body || {};
+    const ids = Array.isArray(competicao_modalidade_ids)
+      ? competicao_modalidade_ids
+      : (competicao_modalidade_id ? [competicao_modalidade_id] : []);
+
+    if (!ids.length || !peso_kg || !categoria_combate) {
+      return res.status(400).json({ msg: 'Campos obrigatórios: competicao_modalidade_id (ou competicao_modalidade_ids), peso_kg, categoria_combate.' });
     }
 
     const evento = await getEventoOr404(req.params.eventoId, res);
@@ -402,25 +356,11 @@ exports.criarInscricao = async (req, res) => {
       return res.status(400).json({ msg: `Inscrições não estão abertas (status atual: ${evento.status}).` });
     }
 
-    const mod = (evento.modalidades || []).find(m => String(m.id) === String(competicao_modalidade_id));
-    if (!mod) {
-      return res.status(400).json({ msg: 'Esta modalidade não está habilitada para o evento.' });
-    }
-
-    if (!mod.filiacao_modalidade_id) {
-      return res.status(400).json({ msg: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).' });
-    }
-
     const atletaId = req.usuario.id;
     const atleta = await getAtletaWithUsuario(atletaId);
     if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de se inscrever.' });
 
-    const filiacao = await findFiliacaoAtiva(atletaId, mod.filiacao_modalidade_id);
-    if (!filiacao) {
-      return res.status(403).json({ msg: 'Você não possui filiação ativa na modalidade exigida para esta inscrição.' });
-    }
-
-    // Idade na data do evento (regulamento cita a data da primeira luta; usamos data_evento como referência padrão)
+    // Idade na data do evento
     const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
     const grupoEtario = grupoEtarioFromAge(idadeAnos);
     if (!atleta.sexo) {
@@ -430,214 +370,105 @@ exports.criarInscricao = async (req, res) => {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
-    // Regulamento: modalidades permitidas por categoria
-    if (!modalidadePermitidaPorGrupo(grupoEtario, mod.code)) {
-      return res.status(400).json({ msg: `Esta modalidade não é permitida para sua categoria (${grupoEtario}) conforme regulamento.` });
-    }
-
-    // Regulamento: peso mínimo por grupo (tabela oficial de divisões pode ser adicionada depois)
+    // Regulamento: peso mínimo por grupo
     const pesoCheck = validatePesoMinimo(grupoEtario, peso_kg);
     if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
 
     const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
-    const divisaoPeso = divisaoPesoFromGrupo(grupoEtario, peso_kg);
-    if (!divisaoPeso) {
-      return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso (tabela oficial).' });
-    }
+    const divisaoPeso = divisaoPesoPlaceholder(peso_kg);
 
-    // Regulamento: categoria por nível técnico (faixas/graduações)
-    const catCheck = validateCategoriaCombate(categoria_combate, filiacao?.graduacao?.nome);
-    if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
+    const created = [];
+    const itens = [];
+    let total = 0;
 
-    // Evita duplicidade (unique uq_comp_inscricao)
-    const existente = await CompeticaoInscricao.findOne({
-      where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: mod.id }
-    });
-    if (existente) {
-      return res.status(400).json({ msg: 'Você já possui inscrição nesta modalidade para este evento.' });
-    }
-
-    let status = 'PENDENTE_PAGAMENTO';
-    // taxa por modalidade (fallback: taxa do evento)
-    const taxa = Number(mod?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
-
-    // Autorização especial (apenas atletas acima de 40 anos)
-    const precisaAutorizacao = requiresAutorizacaoEspecial(idadeAnos);
-    if (precisaAutorizacao) {
-      if (!hasMinAntecedenciaDias(evento.data_evento, new Date(), 30)) {
-        return res.status(400).json({ msg: 'Para atletas acima de 40 anos, a Autorização Especial deve ser solicitada com antecedência mínima de 30 dias.' });
+    for (const id of ids) {
+      const mod = (evento.modalidades || []).find(m => String(m.id) === String(id));
+      if (!mod) {
+        return res.status(400).json({ msg: 'Uma das modalidades selecionadas não está habilitada para o evento.' });
       }
-
-      const authority = authorityByEscopo(evento.escopo);
-      await CompeticaoAutorizacao.findOrCreate({
-        where: { evento_id: evento.id, atleta_id: atletaId, authority },
-        defaults: { status: 'PENDENTE', requested_at: new Date() }
-      });
-    }
-
-    if (taxa <= 0) {
-      // Se não há taxa, consideramos confirmada (ou aguardando autorização se necessário)
-      status = precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA';
-    }
-
-    const inscricao = await CompeticaoInscricao.create({
-      evento_id: evento.id,
-      atleta_id: atletaId,
-      filiacao_id: filiacao.id,
-      competicao_modalidade_id: mod.id,
-      peso_kg,
-      idade_anos: idadeAnos,
-      grupo_etario: grupoEtario,
-      divisao_idade: divisaoIdade,
-      divisao_peso: divisaoPeso,
-      categoria_combate,
-      status,
-    });
-
-    // Enriquecemos a resposta com labels úteis para o frontend (sem alterar o schema).
-    const payload = inscricao.toJSON();
-    payload.divisao_peso_label = divisaoPesoLabel(divisaoPeso);
-    payload.fight_config = fightConfigByModalidadeCode(mod.code, idadeAnos);
-
-    res.status(201).json(payload);
-  } catch (err) {
-    console.error('Erro ao criar inscrição:', err);
-    // Constraint do MySQL (unique) vira erro aqui
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
-// Cria inscrições em lote (1 inscrição por modalidade selecionada)
-// Payload: { modalidade_ids: [1,2,3], peso_kg: 70.5, categoria_combate: 'COLORIDAS' }
-exports.criarInscricoesLote = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-
-    const { modalidade_ids, peso_kg, categoria_combate } = req.body || {};
-    if (!Array.isArray(modalidade_ids) || modalidade_ids.length === 0) {
-      return res.status(400).json({ msg: 'Informe modalidade_ids como array (mínimo 1).' });
-    }
-    if (!peso_kg || !categoria_combate) {
-      return res.status(400).json({ msg: 'Campos obrigatórios: peso_kg, categoria_combate.' });
-    }
-
-    const evento = await getEventoOr404(req.params.eventoId, res);
-    if (!evento) return;
-    if (evento.status !== 'INSCRICOES_ABERTAS') {
-      return res.status(400).json({ msg: `Inscrições não estão abertas (status atual: ${evento.status}).` });
-    }
-
-    const atletaId = req.usuario.id;
-    const atleta = await getAtletaWithUsuario(atletaId);
-    if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de se inscrever.' });
-
-    const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
-    const grupoEtario = grupoEtarioFromAge(idadeAnos);
-    if (!atleta.sexo) return res.status(400).json({ msg: 'Atualize seu perfil: informe o sexo (M/F) para competir.' });
-    if (!grupoEtario) return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
-
-    const pesoCheck = validatePesoMinimo(grupoEtario, peso_kg);
-    if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
-    const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
-    const divisaoPeso = divisaoPesoFromGrupo(grupoEtario, peso_kg);
-    if (!divisaoPeso) {
-      return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso (tabela oficial).' });
-    }
-
-    const catCheck = validateCategoriaCombate(categoria_combate, null);
-    if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
-
-    // Normaliza IDs e garante que todas existem no evento
-    const wanted = [...new Set(modalidade_ids.map((x) => Number(x)).filter(Boolean))];
-    const modsEvento = (evento.modalidades || []);
-    const byId = new Map(modsEvento.map(m => [Number(m.id), m]));
-
-    for (const mid of wanted) {
-      const mod = byId.get(mid);
-      if (!mod) return res.status(400).json({ msg: `A modalidade ${mid} não está habilitada para o evento.` });
       if (!mod.filiacao_modalidade_id) {
         return res.status(400).json({ msg: `Modalidade ${mod.nome} ainda não vinculada a uma modalidade de filiação (configuração admin).` });
       }
-      if (!modalidadePermitidaPorGrupo(grupoEtario, mod.code)) {
-        return res.status(400).json({ msg: `A modalidade ${mod.nome} não é permitida para sua categoria (${grupoEtario}) conforme regulamento.` });
-      }
-    }
 
-    // Valida filiações e duplicidade antes de criar
-    const filiacaoByModId = {};
-    for (const mid of wanted) {
-      const mod = byId.get(mid);
+      // Valida filiação pela modalidade mãe
       const filiacao = await findFiliacaoAtiva(atletaId, mod.filiacao_modalidade_id);
       if (!filiacao) {
         return res.status(403).json({ msg: `Você não possui filiação ativa na modalidade exigida para: ${mod.nome}.` });
       }
-      filiacaoByModId[mid] = filiacao;
-    }
 
-    const existentes = await CompeticaoInscricao.findAll({
-      where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: { [Op.in]: wanted } },
-      attributes: ['competicao_modalidade_id']
-    });
-    if (existentes?.length) {
-      const nomes = existentes.map(e => byId.get(Number(e.competicao_modalidade_id))?.nome || e.competicao_modalidade_id);
-      return res.status(400).json({ msg: `Você já possui inscrição nas modalidades: ${nomes.join(', ')}.` });
-    }
-
-    // Autorização especial (acima de 40)
-    const precisaAutorizacao = requiresAutorizacaoEspecial(idadeAnos);
-    if (precisaAutorizacao) {
-      if (!hasMinAntecedenciaDias(evento.data_evento, new Date(), 30)) {
-        return res.status(400).json({ msg: 'Para atletas acima de 40 anos, a Autorização Especial deve ser solicitada com antecedência mínima de 30 dias.' });
+      // Regulamento: modalidades permitidas por categoria
+      if (!modalidadePermitidaPorGrupo(grupoEtario, mod.code)) {
+        return res.status(400).json({ msg: `A modalidade ${mod.nome} não é permitida para sua categoria (${grupoEtario}) conforme regulamento.` });
       }
-      const authority = authorityByEscopo(evento.escopo);
-      await CompeticaoAutorizacao.findOrCreate({
-        where: { evento_id: evento.id, atleta_id: atletaId, authority },
-        defaults: { status: 'PENDENTE', requested_at: new Date() }
+
+      // Regulamento: categoria por nível técnico (faixas/graduações)
+      const catCheck = validateCategoriaCombate(categoria_combate, filiacao?.graduacao?.nome);
+      if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
+
+      // Evita duplicidade
+      const existente = await CompeticaoInscricao.findOne({
+        where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: mod.id }
       });
-    }
-
-    const t = await db.sequelize.transaction();
-    try {
-      const criadas = [];
-      for (const mid of wanted) {
-        const mod = byId.get(mid);
-        const filiacao = filiacaoByModId[mid];
-        const taxa = Number(mod?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
-        let status = 'PENDENTE_PAGAMENTO';
-        if (taxa <= 0) status = precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA';
-
-        const inscricao = await CompeticaoInscricao.create({
-          evento_id: evento.id,
-          atleta_id: atletaId,
-          filiacao_id: filiacao.id,
-          competicao_modalidade_id: mod.id,
-          peso_kg,
-          idade_anos: idadeAnos,
-          grupo_etario: grupoEtario,
-          divisao_idade: divisaoIdade,
-          divisao_peso: divisaoPeso,
-          categoria_combate,
-          status,
-        }, { transaction: t });
-
-        const payload = inscricao.toJSON();
-        payload.taxa_inscricao = taxa;
-        payload.divisao_peso_label = divisaoPesoLabel(divisaoPeso);
-        payload.fight_config = fightConfigByModalidadeCode(mod.code, idadeAnos);
-        criadas.push(payload);
+      if (existente) {
+        return res.status(400).json({ msg: `Você já possui inscrição na modalidade ${mod.nome} para este evento.` });
       }
 
-      await t.commit();
-      const total = criadas.reduce((acc, i) => acc + Number(i.taxa_inscricao || 0), 0);
-      return res.status(201).json({ inscricoes: criadas, total });
-    } catch (e) {
-      await t.rollback();
-      console.error('Erro ao criar inscrições em lote:', e);
-      return res.status(500).send('Erro no servidor.');
+      let status = 'PENDENTE_PAGAMENTO';
+      const taxa = Number(mod?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
+      total += taxa;
+
+      // Autorização especial (apenas atletas acima de 40 anos)
+      const precisaAutorizacao = requiresAutorizacaoEspecial(idadeAnos);
+      if (precisaAutorizacao) {
+        if (!hasMinAntecedenciaDias(evento.data_evento, new Date(), 30)) {
+          return res.status(400).json({ msg: 'Para atletas acima de 40 anos, a Autorização Especial deve ser solicitada com antecedência mínima de 30 dias.' });
+        }
+        const authority = authorityByEscopo(evento.escopo);
+        await CompeticaoAutorizacao.findOrCreate({
+          where: { evento_id: evento.id, atleta_id: atletaId, authority },
+          defaults: { status: 'PENDENTE', requested_at: new Date() }
+        });
+      }
+
+      if (taxa <= 0) {
+        status = precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA';
+      }
+
+      const inscricao = await CompeticaoInscricao.create({
+        evento_id: evento.id,
+        atleta_id: atletaId,
+        filiacao_id: filiacao.id,
+        competicao_modalidade_id: mod.id,
+        peso_kg,
+        idade_anos: idadeAnos,
+        grupo_etario: grupoEtario,
+        divisao_idade: divisaoIdade,
+        divisao_peso: divisaoPeso,
+        categoria_combate,
+        status,
+      });
+
+      itens.push({
+        competicao_inscricao_id: inscricao.id,
+        competicao_modalidade_id: mod.id,
+        descricao: mod.nome,
+        valor: taxa,
+      });
+
+      created.push(inscricao);
     }
+
+    // Resposta "invoice-like" (cobrança única no gateway pode ser adicionada depois)
+    return res.status(201).json({
+      msg: 'Inscrição(ões) criada(s).',
+      evento_id: evento.id,
+      atleta_id: atletaId,
+      total,
+      itens,
+      inscricoes: created,
+    });
   } catch (err) {
-    console.error('Erro ao criar inscrições em lote:', err);
+    console.error('Erro ao criar inscrição:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
@@ -657,14 +488,7 @@ exports.minhasInscricoes = async (req, res) => {
       ]
     });
 
-    const payload = (inscricoes || []).map((i) => {
-      const j = i.toJSON();
-      j.divisao_peso_label = divisaoPesoLabel(j.divisao_peso);
-      j.fight_config = fightConfigByModalidadeCode(j.competicaoModalidade?.code, j.idade_anos);
-      return j;
-    });
-
-    res.json(payload);
+    res.json(inscricoes);
   } catch (err) {
     console.error('Erro ao listar minhas inscrições:', err);
     res.status(500).send('Erro no servidor.');
@@ -700,19 +524,14 @@ exports.criarCobrancaInscricao = async (req, res) => {
     }
 
     const evento = inscricao.evento;
-    // taxa por modalidade (fallback: taxa do evento)
-    let taxa = 0;
-    try {
-      const vinculo = await CompeticaoEventoModalidade.findOne({
-        where: {
-          evento_id: inscricao.evento_id,
-          competicao_modalidade_id: inscricao.competicao_modalidade_id,
-        }
-      });
-      taxa = Number(vinculo?.taxa_inscricao ?? evento?.taxa_inscricao ?? 0);
-    } catch {
-      taxa = Number(evento?.taxa_inscricao ?? 0);
-    }
+    // Taxa por submodalidade no evento (pivot) com fallback para taxa padrão do evento
+    const link = await CompeticaoEventoModalidade.findOne({
+      where: {
+        evento_id: inscricao.evento_id,
+        competicao_modalidade_id: inscricao.competicao_modalidade_id,
+      }
+    });
+    const taxa = Number(link?.taxa_inscricao ?? evento?.taxa_inscricao ?? 0);
     if (taxa <= 0) {
       return res.status(400).json({ msg: 'Este evento não possui taxa de inscrição.' });
     }

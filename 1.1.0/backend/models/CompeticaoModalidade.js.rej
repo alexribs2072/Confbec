@@ -1,0 +1,15 @@
+diff a/1.1.0/backend/models/CompeticaoModalidade.js b/1.1.0/backend/models/CompeticaoModalidade.js	(rejected hunks)
+@@ -22,7 +22,12 @@ const CompeticaoModalidade = sequelize.define('CompeticaoModalidade', {
+     type: DataTypes.ENUM('TROCACAO', 'GRAPPLING', 'MISTO'),
+     allowNull: false,
+   },
+-  // Mapeia qual Modalidade (do módulo de filiações) habilita inscrição nessa modalidade de competição
++  // Submodalidade pertence a uma Modalidade (mãe) do módulo de filiações (ex: Kickboxing)
++  modalidade_id: {
++    type: DataTypes.INTEGER,
++    allowNull: false,
++  },
++  // Campo legado (mantido para compatibilidade). Preferir usar modalidade_id.
+   filiacao_modalidade_id: {
+     type: DataTypes.INTEGER,
+     allowNull: true,

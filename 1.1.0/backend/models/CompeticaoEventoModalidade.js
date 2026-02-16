@@ -14,7 +14,8 @@ const CompeticaoEventoModalidade = sequelize.define('CompeticaoEventoModalidade'
     primaryKey: true,
     allowNull: false,
   },
-  // Taxa por modalidade (cobrança por modalidade inscrita)
+
+  // Taxa de inscrição específica para esta submodalidade neste evento
   taxa_inscricao: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,

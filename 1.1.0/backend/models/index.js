@@ -204,22 +204,12 @@ db.CompeticaoModalidade.belongsToMany(db.CompeticaoEvento, {
 
 // CompeticaoModalidade (competição) -> Modalidade (filiacao) (opcional)
 db.Modalidade.hasMany(db.CompeticaoModalidade, {
-    foreignKey: 'modalidade_id',
-    as: 'submodalidadesCompeticao'
+    foreignKey: 'filiacao_modalidade_id',
+    as: 'modalidadesCompeticao'
 });
 db.CompeticaoModalidade.belongsTo(db.Modalidade, {
-    foreignKey: 'modalidade_id',
-    as: 'modalidadeMae'
-});
-
-// Evento -> Modalidade mãe
-db.Modalidade.hasMany(db.CompeticaoEvento, {
-    foreignKey: 'modalidade_id',
-    as: 'eventosCompeticao'
-});
-db.CompeticaoEvento.belongsTo(db.Modalidade, {
-    foreignKey: 'modalidade_id',
-    as: 'modalidadeMae'
+    foreignKey: 'filiacao_modalidade_id',
+    as: 'modalidadeFiliacao'
 });
 
 // Inscrição pertence a evento/atleta/filiação/modalidade de competição

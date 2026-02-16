@@ -1,3 +1,4 @@
+// --- INÍCIO DO ARQUIVO ---
 // /controllers/atletaController.js
 
 const db = require('../models');
@@ -48,9 +49,8 @@ exports.createOrUpdateMeuPerfil = async (req, res) => {
     // Pega os dados do corpo da requisição
     const {
         nome_completo, data_nascimento, rg, cpf,
-        logradouro, cep, bairro, cidade, estado, telefone_contato,
-        sexo // ✅ FIX: agora "sexo" é extraído do req.body
-        // Não inclui foto_url aqui, pois é tratada em outra rota
+        logradouro, cep, bairro, cidade, estado, telefone_contato
+        // Não inclui foto_url aqui, pois é tratada em outra rota, sexo
         } = req.body;
 
     // Verifica se req.usuario existe
@@ -207,3 +207,6 @@ exports.uploadMinhaFoto = async (req, res) => {
         res.status(500).send('Erro no servidor ao fazer upload da foto.'); 
     }
 };
+// --- FIM DA FUNÇÃO ADICIONADA ---
+
+// --- FIM DO ARQUIVO --- (Sem chaves extras aqui)

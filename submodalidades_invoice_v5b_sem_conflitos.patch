@@ -1,0 +1,65 @@
+diff --git a/1.1.0/backend/models/CompeticaoEvento.js b/1.1.0/backend/models/CompeticaoEvento.js
+index eadcf22..d255472 100644
+--- a/1.1.0/backend/models/CompeticaoEvento.js
++++ b/1.1.0/backend/models/CompeticaoEvento.js
+@@ -10,6 +10,11 @@ const CompeticaoEvento = sequelize.define('CompeticaoEvento', {
+     autoIncrement: true,
+     primaryKey: true,
+   },
++  // Modalidade mãe (ex: Kickboxing) usada para validar filiação
++  modalidade_id: {
++    type: DataTypes.INTEGER,
++    allowNull: true,
++  },
+   nome: {
+     type: DataTypes.STRING(160),
+     allowNull: false,
+diff --git a/1.1.0/backend/models/CompeticaoModalidade.js b/1.1.0/backend/models/CompeticaoModalidade.js
+index 1f3b888..566a30b 100644
+--- a/1.1.0/backend/models/CompeticaoModalidade.js
++++ b/1.1.0/backend/models/CompeticaoModalidade.js
+@@ -22,7 +22,12 @@ const CompeticaoModalidade = sequelize.define('CompeticaoModalidade', {
+     type: DataTypes.ENUM('TROCACAO', 'GRAPPLING', 'MISTO'),
+     allowNull: false,
+   },
+-  // Mapeia qual Modalidade (do módulo de filiações) habilita inscrição nessa modalidade de competição
++  // Submodalidade pertence a uma Modalidade (mãe) do módulo de filiações (ex: Kickboxing)
++  modalidade_id: {
++    type: DataTypes.INTEGER,
++    allowNull: false,
++  },
++  // Campo legado (mantido para compatibilidade). Preferir usar modalidade_id.
+   filiacao_modalidade_id: {
+     type: DataTypes.INTEGER,
+     allowNull: true,
+diff --git a/1.1.0/backend/models/index.js b/1.1.0/backend/models/index.js
+index 3b2c346..d148a86 100644
+--- a/1.1.0/backend/models/index.js
++++ b/1.1.0/backend/models/index.js
+@@ -204,12 +204,22 @@ db.CompeticaoModalidade.belongsToMany(db.CompeticaoEvento, {
+ 
+ // CompeticaoModalidade (competição) -> Modalidade (filiacao) (opcional)
+ db.Modalidade.hasMany(db.CompeticaoModalidade, {
+-    foreignKey: 'filiacao_modalidade_id',
+-    as: 'modalidadesCompeticao'
++    foreignKey: 'modalidade_id',
++    as: 'submodalidadesCompeticao'
+ });
+ db.CompeticaoModalidade.belongsTo(db.Modalidade, {
+-    foreignKey: 'filiacao_modalidade_id',
+-    as: 'modalidadeFiliacao'
++    foreignKey: 'modalidade_id',
++    as: 'modalidadeMae'
++});
++
++// Evento -> Modalidade mãe
++db.Modalidade.hasMany(db.CompeticaoEvento, {
++    foreignKey: 'modalidade_id',
++    as: 'eventosCompeticao'
++});
++db.CompeticaoEvento.belongsTo(db.Modalidade, {
++    foreignKey: 'modalidade_id',
++    as: 'modalidadeMae'
+ });
+ 
+ // Inscrição pertence a evento/atleta/filiação/modalidade de competição

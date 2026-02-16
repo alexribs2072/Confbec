@@ -1,0 +1,28 @@
+diff a/1.1.0/backend/models/index.js b/1.1.0/backend/models/index.js	(rejected hunks)
+@@ -204,12 +204,22 @@ db.CompeticaoModalidade.belongsToMany(db.CompeticaoEvento, {
+ 
+ // CompeticaoModalidade (competição) -> Modalidade (filiacao) (opcional)
+ db.Modalidade.hasMany(db.CompeticaoModalidade, {
+-    foreignKey: 'filiacao_modalidade_id',
+-    as: 'modalidadesCompeticao'
++    foreignKey: 'modalidade_id',
++    as: 'submodalidadesCompeticao'
+ });
+ db.CompeticaoModalidade.belongsTo(db.Modalidade, {
+-    foreignKey: 'filiacao_modalidade_id',
+-    as: 'modalidadeFiliacao'
++    foreignKey: 'modalidade_id',
++    as: 'modalidadeMae'
++});
++
++// Evento -> Modalidade mãe
++db.Modalidade.hasMany(db.CompeticaoEvento, {
++    foreignKey: 'modalidade_id',
++    as: 'eventosCompeticao'
++});
++db.CompeticaoEvento.belongsTo(db.Modalidade, {
++    foreignKey: 'modalidade_id',
++    as: 'modalidadeMae'
+ });
+ 
+ // Inscrição pertence a evento/atleta/filiação/modalidade de competição
