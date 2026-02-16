@@ -17,6 +17,8 @@ db.Filiacao = require('./Filiacao.js');
 db.Documento = require('./Documento.js');
 db.MetodoPagamento = require('./MetodoPagamento.js');
 db.Pagamento = require('./Pagamento.js');
+// Itens de pagamento (fatura)
+db.PagamentoItem = require('./PagamentoItem.js');
 db.Noticia = require('./Noticia.js');
 
 // --- Módulo de Competições ---
@@ -35,6 +37,8 @@ db.CompeticaoInvoiceItem = require('./CompeticaoInvoiceItem.js');
 // db.Documento = require('./Documento.js');
 // db.MetodoPagamento = require('./MetodoPagamento.js');
 // db.Pagamento = require('./Pagamento.js');
+// Itens de pagamento (fatura)
+db.PagamentoItem = require('./PagamentoItem.js');
 // db.Noticia = require('./Noticia.js');
 
 
@@ -188,6 +192,16 @@ db.Pagamento.belongsTo(db.MetodoPagamento, {
     as: 'metodoPagamento'
 });
 
+
+// Itens de Pagamento (fatura)
+db.Pagamento.hasMany(db.PagamentoItem, {
+    foreignKey: 'pagamento_id',
+    as: 'itens'
+});
+db.PagamentoItem.belongsTo(db.Pagamento, {
+    foreignKey: 'pagamento_id',
+    as: 'pagamento'
+});
 // 10) Módulo de Competições
 
 // Evento -> Modalidade mãe
