@@ -13,6 +13,10 @@ import {
   Button,
   Chip,
   Grid,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
 } from '@mui/material';
 
 function fmtDate(d) {
@@ -25,6 +29,11 @@ function fmtDate(d) {
   }
 }
 
+function money(v) {
+  const n = Number(v || 0);
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 export default function MinhasInscricoesCompeticaoPage() {
   const navigate = useNavigate();
   const [data, setData] = useState([]);
@@ -32,34 +41,34 @@ export default function MinhasInscricoesCompeticaoPage() {
   const [error, setError] = useState(null);
   const [payingId, setPayingId] = useState(null);
 
-  const fetchInscricoes = async () => {
+  const fetchInvoices = async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await axios.get('/api/competicoes/inscricoes/me');
+      const res = await axios.get('/api/competicoes/invoices/me');
       setData(res.data || []);
     } catch (err) {
       console.error('[MinhasInscricoesCompeticaoPage] erro:', err);
-      setError(err.response?.data?.msg || 'Erro ao carregar inscrições.');
+      setError(err.response?.data?.msg || 'Erro ao carregar inscrições/faturas.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchInscricoes();
+    fetchInvoices();
   }, []);
 
-  const pagar = async (inscricaoId) => {
+  const pagarInvoice = async (invoiceId) => {
     try {
-      setPayingId(inscricaoId);
-      const res = await axios.post(`/api/competicoes/inscricoes/${inscricaoId}/criar-cobranca`, {});
+      setPayingId(invoiceId);
+      const res = await axios.post(`/api/competicoes/invoices/${invoiceId}/criar-cobranca`, {});
       const pagamentoId = res.data?.pagamentoId;
       if (!pagamentoId) throw new Error('Pagamento não retornado pelo servidor.');
       navigate(`/pagamento/${pagamentoId}`);
     } catch (err) {
       console.error('[MinhasInscricoesCompeticaoPage] erro pagar:', err);
-      setError(err.response?.data?.msg || 'Erro ao criar cobrança.');
+      setError(err.response?.data?.msg || 'Erro ao gerar cobrança.');
     } finally {
       setPayingId(null);
     }
@@ -87,43 +96,56 @@ export default function MinhasInscricoesCompeticaoPage() {
         <Alert severity="info">Você ainda não possui inscrições em competições.</Alert>
       ) : (
         <Grid container spacing={2}>
-          {data.map((i) => (
-            <Grid item xs={12} md={6} key={i.id}>
+          {data.map((inv) => (
+            <Grid item xs={12} md={6} key={inv.id}>
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="h6" fontWeight={800} gutterBottom>
-                    {i.evento?.nome || 'Evento'}
+                    {inv.evento?.nome || 'Evento'}
                   </Typography>
 
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                    <Chip size="small" label={i.status} color={i.status === 'CONFIRMADA' ? 'success' : 'default'} variant="outlined" />
-                    <Chip size="small" label={i.competicaoModalidade?.nome || 'Modalidade'} variant="outlined" />
+                    <Chip size="small" label={`Invoice #${inv.id}`} variant="outlined" />
+                    <Chip size="small" label={inv.status} color={inv.status === 'PAGO' ? 'success' : (inv.status === 'PENDENTE' ? 'warning' : 'default')} variant="outlined" />
+                    <Chip size="small" label={`Total: ${money(inv.valor_total)}`} variant="outlined" />
                   </Box>
 
                   <Typography variant="body2" color="text.secondary">
-                    Data do evento: <strong>{fmtDate(i.evento?.data_evento)}</strong>
+                    Data do evento: <strong>{fmtDate(inv.evento?.data_evento)}</strong>
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Peso informado: <strong>{Number(i.peso_kg).toFixed(1)} kg</strong>
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Grupo etário: <strong>{i.grupo_etario}</strong> • Divisão peso: <strong>{i.divisao_peso}</strong>
-                  </Typography>
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>Itens</Typography>
+                  {(inv.itens || []).length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">—</Typography>
+                  ) : (
+                    <List dense disablePadding>
+                      {(inv.itens || []).map((it) => (
+                        <ListItem key={it.id} disableGutters divider>
+                          <ListItemText
+                            primary={it.descricao}
+                            secondary={money(it.valor)}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  )}
                 </CardContent>
 
                 <CardActions sx={{ px: 2, pb: 2, gap: 1 }}>
-                  {i.status === 'PENDENTE_PAGAMENTO' ? (
+                  {inv.status === 'PENDENTE' ? (
                     <Button
                       variant="contained"
-                      onClick={() => pagar(i.id)}
-                      disabled={payingId === i.id}
+                      onClick={() => pagarInvoice(inv.id)}
+                      disabled={payingId === inv.id}
                       fullWidth
                     >
-                      {payingId === i.id ? 'Gerando cobrança...' : 'Pagar inscrição'}
+                      {payingId === inv.id ? 'Gerando cobrança...' : 'Pagar invoice'}
                     </Button>
                   ) : (
-                    <Button variant="outlined" onClick={fetchInscricoes} fullWidth>
-                      Atualizar status
+                    <Button variant="outlined" onClick={fetchInvoices} fullWidth>
+                      Atualizar
                     </Button>
                   )}
                 </CardActions>

@@ -7,7 +7,11 @@ const CompeticaoInscricao = sequelize.define('CompeticaoInscricao', {
     autoIncrement: true,
     primaryKey: true,
   },
-  // evento_id, atleta_id, filiacao_id e competicao_modalidade_id virão pelas associações
+  // FKs
+  evento_id: { type: DataTypes.INTEGER, allowNull: false },
+  atleta_id: { type: DataTypes.INTEGER, allowNull: false },
+  filiacao_id: { type: DataTypes.INTEGER, allowNull: false },
+  competicao_modalidade_id: { type: DataTypes.INTEGER, allowNull: false },
   peso_kg: {
     type: DataTypes.DECIMAL(5, 2),
     allowNull: false,

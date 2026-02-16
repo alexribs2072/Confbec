@@ -1,8 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/connection');
 
-// Tabela de junção evento <-> modalidade (PK composta)
-
+// Tabela de junção evento <-> submodalidade, com taxa por submodalidade
 const CompeticaoEventoModalidade = sequelize.define('CompeticaoEventoModalidade', {
   evento_id: {
     type: DataTypes.INTEGER,
@@ -14,8 +13,6 @@ const CompeticaoEventoModalidade = sequelize.define('CompeticaoEventoModalidade'
     primaryKey: true,
     allowNull: false,
   },
-
-  // Taxa de inscrição específica para esta submodalidade neste evento
   taxa_inscricao: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
@@ -23,9 +20,7 @@ const CompeticaoEventoModalidade = sequelize.define('CompeticaoEventoModalidade'
   },
 }, {
   tableName: 'competicao_evento_modalidades',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
+  timestamps: false,
 });
 
 module.exports = CompeticaoEventoModalidade;

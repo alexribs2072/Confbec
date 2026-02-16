@@ -11,9 +11,6 @@ import {
 
 // --- Ícones ---
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CancelIcon from '@mui/icons-material/Cancel';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import SportsMartialArtsIcon from '@mui/icons-material/SportsMartialArts'; // Ícone temático
 import ListAltIcon from '@mui/icons-material/ListAlt';
@@ -27,11 +24,6 @@ function ManageModalidadesPage() {
   const [formError, setFormError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null); // Feedback de sucesso
   const [saving, setSaving] = useState(false); // Estado de salvando
-
-  // Edição
-  const [editingId, setEditingId] = useState(null);
-  const [editingNome, setEditingNome] = useState('');
-  const [editError, setEditError] = useState(null);
 
   // Buscar modalidades
   const fetchModalidades = async () => {
@@ -93,41 +85,6 @@ function ManageModalidadesPage() {
     }
   };
 
-  const handleStartEdit = (mod) => {
-    setEditError(null);
-    setSuccessMsg(null);
-    setEditingId(mod.id);
-    setEditingNome(mod.nome || '');
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setEditingNome('');
-    setEditError(null);
-  };
-
-  const handleSaveEdit = async (id) => {
-    setEditError(null);
-    setSuccessMsg(null);
-    const novoNome = (editingNome || '').trim();
-    if (!novoNome) {
-      setEditError('O nome da modalidade não pode estar vazio.');
-      return;
-    }
-    try {
-      setSaving(true);
-      await axios.put(`/api/modalidades/${id}`, { nome: novoNome });
-      setSuccessMsg('Modalidade atualizada com sucesso!');
-      setTimeout(() => setSuccessMsg(null), 3000);
-      handleCancelEdit();
-      fetchModalidades();
-    } catch (err) {
-      setEditError(err.response?.data?.msg || 'Erro ao atualizar modalidade.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <Container maxWidth="lg">
       
@@ -156,7 +113,6 @@ function ManageModalidadesPage() {
           </Zoom>
         )}
         {error && <Alert severity="error">{error}</Alert>}
-        {editError && <Alert severity="error">{editError}</Alert>}
       </Box>
 
       {/* --- 2. ÁREA DE CADASTRO (CARD) --- */}
@@ -244,68 +200,22 @@ function ManageModalidadesPage() {
                       <Chip label={`#${mod.id}`} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell>
-                      {editingId === mod.id ? (
-                        <TextField
-                          size="small"
-                          fullWidth
-                          value={editingNome}
-                          onChange={(e) => setEditingNome(e.target.value)}
-                          disabled={saving}
-                        />
-                      ) : (
-                        <Typography variant="body1" fontWeight="500">{mod.nome}</Typography>
-                      )}
+                      <Typography variant="body1" fontWeight="500">{mod.nome}</Typography>
                     </TableCell>
                     <TableCell align="right">
-                      {editingId === mod.id ? (
-                        <Box sx={{ display: 'inline-flex', gap: 1 }}>
-                          <Tooltip title="Salvar" arrow>
-                            <IconButton
-                              aria-label="salvar"
-                              color="success"
-                              disabled={saving}
-                              onClick={() => handleSaveEdit(mod.id)}
-                              sx={{ bgcolor: 'success.50', '&:hover': { bgcolor: 'success.100' } }}
-                            >
-                              <CheckCircleIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Cancelar" arrow>
-                            <IconButton
-                              aria-label="cancelar"
-                              disabled={saving}
-                              onClick={handleCancelEdit}
-                            >
-                              <CancelIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      ) : (
-                        <Box sx={{ display: 'inline-flex', gap: 1 }}>
-                          <Tooltip title="Editar Modalidade" arrow>
-                            <IconButton
-                              aria-label="editar"
-                              onClick={() => handleStartEdit(mod)}
-                              sx={{ bgcolor: 'primary.50', '&:hover': { bgcolor: 'primary.100' } }}
-                            >
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Excluir Modalidade" arrow>
-                            <IconButton 
-                              aria-label="deletar" 
-                              color="error"
-                              onClick={() => handleDelete(mod.id)}
-                              sx={{ 
-                                bgcolor: 'error.50', 
-                                '&:hover': { bgcolor: 'error.100' } 
-                              }}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      )}
+                      <Tooltip title="Excluir Modalidade" arrow>
+                        <IconButton 
+                          aria-label="deletar" 
+                          color="error"
+                          onClick={() => handleDelete(mod.id)}
+                          sx={{ 
+                            bgcolor: 'error.50', 
+                            '&:hover': { bgcolor: 'error.100' } 
+                          }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))

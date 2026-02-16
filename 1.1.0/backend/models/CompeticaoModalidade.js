@@ -22,8 +22,7 @@ const CompeticaoModalidade = sequelize.define('CompeticaoModalidade', {
     type: DataTypes.ENUM('TROCACAO', 'GRAPPLING', 'MISTO'),
     allowNull: false,
   },
-  // Modalidade mãe (ex: Kickboxing) do módulo de filiações/graduações.
-  // O atleta será validado pela filiação ATIVA nesta modalidade mãe.
+  // Modalidade mãe (tabela `modalidades`) à qual esta submodalidade pertence
   modalidade_id: {
     type: DataTypes.INTEGER,
     allowNull: false,

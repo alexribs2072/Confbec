@@ -25,6 +25,8 @@ db.CompeticaoModalidade = require('./CompeticaoModalidade.js');
 db.CompeticaoEventoModalidade = require('./CompeticaoEventoModalidade.js');
 db.CompeticaoInscricao = require('./CompeticaoInscricao.js');
 db.CompeticaoAutorizacao = require('./CompeticaoAutorizacao.js');
+db.CompeticaoInvoice = require('./CompeticaoInvoice.js');
+db.CompeticaoInvoiceItem = require('./CompeticaoInvoiceItem.js');
 
 // --- (Você irá criar estes arquivos em breve) ---
 // db.Modalidade = require('./Modalidade.js');
@@ -188,7 +190,7 @@ db.Pagamento.belongsTo(db.MetodoPagamento, {
 
 // 10) Módulo de Competições
 
-// Evento -> Modalidade (mãe)
+// Evento -> Modalidade mãe
 db.Modalidade.hasMany(db.CompeticaoEvento, {
     foreignKey: 'modalidade_id',
     as: 'eventosCompeticao'
@@ -197,6 +199,7 @@ db.CompeticaoEvento.belongsTo(db.Modalidade, {
     foreignKey: 'modalidade_id',
     as: 'modalidadeMae'
 });
+
 
 // Evento <-> Modalidades (N:N)
 db.CompeticaoEvento.belongsToMany(db.CompeticaoModalidade, {
@@ -212,7 +215,7 @@ db.CompeticaoModalidade.belongsToMany(db.CompeticaoEvento, {
     as: 'eventos'
 });
 
-// Submodalidades (competição) -> Modalidade (mãe)
+// CompeticaoModalidade (submodalidade) -> Modalidade (mãe)
 db.Modalidade.hasMany(db.CompeticaoModalidade, {
     foreignKey: 'modalidade_id',
     as: 'subModalidades'
@@ -276,6 +279,53 @@ db.Atleta.hasMany(db.CompeticaoAutorizacao, {
 db.CompeticaoAutorizacao.belongsTo(db.Atleta, {
     foreignKey: 'atleta_id',
     as: 'atleta'
+});
+
+// Invoice (fatura) agregada
+db.CompeticaoEvento.hasMany(db.CompeticaoInvoice, {
+    foreignKey: 'evento_id',
+    as: 'invoices'
+});
+db.CompeticaoInvoice.belongsTo(db.CompeticaoEvento, {
+    foreignKey: 'evento_id',
+    as: 'evento'
+});
+
+db.Atleta.hasMany(db.CompeticaoInvoice, {
+    foreignKey: 'atleta_id',
+    as: 'competicaoInvoices'
+});
+db.CompeticaoInvoice.belongsTo(db.Atleta, {
+    foreignKey: 'atleta_id',
+    as: 'atleta'
+});
+
+db.CompeticaoInvoice.hasMany(db.CompeticaoInvoiceItem, {
+    foreignKey: 'invoice_id',
+    as: 'itens'
+});
+db.CompeticaoInvoiceItem.belongsTo(db.CompeticaoInvoice, {
+    foreignKey: 'invoice_id',
+    as: 'invoice'
+});
+
+db.CompeticaoInscricao.hasOne(db.CompeticaoInvoiceItem, {
+    foreignKey: 'competicao_inscricao_id',
+    as: 'invoiceItem'
+});
+db.CompeticaoInvoiceItem.belongsTo(db.CompeticaoInscricao, {
+    foreignKey: 'competicao_inscricao_id',
+    as: 'inscricao'
+});
+
+// Pagamento -> Invoice (opcional)
+db.CompeticaoInvoice.hasMany(db.Pagamento, {
+    foreignKey: 'competicao_invoice_id',
+    as: 'pagamentos'
+});
+db.Pagamento.belongsTo(db.CompeticaoInvoice, {
+    foreignKey: 'competicao_invoice_id',
+    as: 'competicaoInvoice'
 });
 
 // Pagamento -> Inscrição (opcional)

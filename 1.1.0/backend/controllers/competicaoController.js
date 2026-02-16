@@ -1,38 +1,38 @@
 const db = require('../models');
+const { Op } = require('sequelize');
+
 const {
-  Atleta,
   Usuario,
-  Filiacao,
+  Atleta,
   Graduacao,
-  Modalidade: ModalidadeModel,
+  Filiacao,
+  Modalidade,
   MetodoPagamento,
   Pagamento,
   CompeticaoEvento,
   CompeticaoModalidade,
+  CompeticaoEventoModalidade,
   CompeticaoInscricao,
   CompeticaoAutorizacao,
-  CompeticaoEventoModalidade,
+  CompeticaoInvoice,
+  CompeticaoInvoiceItem,
 } = db;
 
-// ✅ Garantia contra ReferenceError em ambientes onde o destructuring não foi atualizado
-const Modalidade = ModalidadeModel || db.Modalidade;
-
-const { Op } = db.Sequelize;
 const {
   calcAgeYears,
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
   modalidadePermitidaPorGrupo,
-  pesoDivisoesByGrupo,
   validatePesoMinimo,
-  divisaoPesoFromGrupo,
-  divisaoPesoLabel,
-  fightConfigByModalidadeCode,
+  divisaoPesoPlaceholder,
   requiresAutorizacaoEspecial,
   authorityByEscopo,
   hasMinAntecedenciaDias,
   validateCategoriaCombate,
 } = require('../services/competicaoRules');
+
+const coraClient = require('../services/coraClient');
+const pagbankClient = require('../services/pagbankClient');
 
 function safeProviderFromMetodo(metodo) {
   const cfg = metodo?.configuracao;
@@ -54,12 +54,14 @@ async function getAtletaWithUsuario(atletaId) {
 
 async function getEventoOr404(eventoId, res) {
   const evento = await CompeticaoEvento.findByPk(eventoId, {
-    include: [{
-      model: CompeticaoModalidade,
-      as: 'modalidades',
-      // expõe taxa por modalidade via tabela de junção
-      through: { attributes: ['taxa_inscricao'] }
-    }]
+    include: [
+      { model: Modalidade, as: 'modalidadeMae', attributes: ['id', 'nome'] },
+      {
+        model: CompeticaoModalidade,
+        as: 'modalidades',
+        through: { attributes: ['taxa_inscricao'] }
+      }
+    ]
   });
   if (!evento) {
     res.status(404).json({ msg: 'Evento não encontrado.' });
@@ -87,8 +89,18 @@ async function findFiliacaoAtiva(atletaId, modalidadeId) {
   });
 }
 
+function inferProviderFromMetodo(metodoPagamento) {
+  const p = safeProviderFromMetodo(metodoPagamento);
+  if (p) return p;
+  const nome = (metodoPagamento?.nome || '').toLowerCase();
+  if (nome.includes('cora')) return 'cora';
+  if (nome.includes('pagbank') || nome.includes('pagseguro')) return 'pagbank';
+  if (nome === 'pix') return 'pagbank';
+  return null;
+}
+
 // =========================
-// Eventos (Admin)
+// Eventos (Admin + Público)
 // =========================
 
 exports.listarEventos = async (req, res) => {
@@ -103,11 +115,14 @@ exports.listarEventos = async (req, res) => {
     const eventos = await CompeticaoEvento.findAll({
       where,
       order: [['data_evento', 'DESC']],
-      include: [{
-        model: CompeticaoModalidade,
-        as: 'modalidades',
-        through: { attributes: ['taxa_inscricao'] }
-      }]
+      include: [
+        { model: Modalidade, as: 'modalidadeMae', attributes: ['id', 'nome'] },
+        {
+          model: CompeticaoModalidade,
+          as: 'modalidades',
+          through: { attributes: ['taxa_inscricao'] }
+        }
+      ]
     });
 
     res.json(eventos);
@@ -122,7 +137,6 @@ exports.getEvento = async (req, res) => {
     const evento = await getEventoOr404(req.params.eventoId, res);
     if (!evento) return;
 
-    // Se não for admin, não expõe rascunho/cancelado
     const isAdmin = req.usuario?.tipo === 'admin';
     if (!isAdmin && ['RASCUNHO', 'CANCELADO'].includes(evento.status)) {
       return res.status(404).json({ msg: 'Evento não encontrado.' });
@@ -137,7 +151,7 @@ exports.getEvento = async (req, res) => {
 
 exports.criarEvento = async (req, res) => {
   try {
-    const { nome, descricao, local, escopo, data_evento, data_fim, status, taxa_inscricao } = req.body;
+    const { nome, descricao, local, escopo, data_evento, data_fim, status, taxa_inscricao, modalidade_id } = req.body;
     if (!nome || !data_evento) return res.status(400).json({ msg: 'Campos obrigatórios: nome, data_evento.' });
 
     const evento = await CompeticaoEvento.create({
@@ -149,6 +163,7 @@ exports.criarEvento = async (req, res) => {
       data_fim: data_fim ?? null,
       status: status ?? 'RASCUNHO',
       taxa_inscricao: taxa_inscricao ?? 0,
+      modalidade_id: modalidade_id ?? null,
     });
 
     res.status(201).json(evento);
@@ -163,7 +178,7 @@ exports.atualizarEvento = async (req, res) => {
     const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
     if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
 
-    const allowed = ['nome', 'descricao', 'local', 'escopo', 'data_evento', 'data_fim', 'status', 'taxa_inscricao'];
+    const allowed = ['nome', 'descricao', 'local', 'escopo', 'data_evento', 'data_fim', 'status', 'taxa_inscricao', 'modalidade_id'];
     const patch = {};
     for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
 
@@ -175,75 +190,47 @@ exports.atualizarEvento = async (req, res) => {
   }
 };
 
-// "Delete" seguro: marca como CANCELADO.
-// (Mantém histórico e evita quebrar FK/inscrições.)
-exports.excluirEvento = async (req, res) => {
-  try {
-    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
-    if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
-
-    // Se já está cancelado, é idempotente.
-    if (evento.status === 'CANCELADO') {
-      return res.json({ msg: 'Evento já está cancelado.', evento });
-    }
-
-    await evento.update({ status: 'CANCELADO' });
-    return res.json({ msg: 'Evento cancelado com sucesso.', evento });
-  } catch (err) {
-    console.error('Erro ao cancelar evento:', err);
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
-
-// Alias para compatibilidade com rotas antigas
-exports.cancelarEvento = exports.excluirEvento;
-
+// Vincula submodalidades ao evento com taxa por submodalidade
+// body: { submodalidades: [{id, taxa_inscricao}] }
 exports.atualizarModalidadesDoEvento = async (req, res) => {
+  const { eventoId } = req.params;
   try {
-    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
+    const evento = await CompeticaoEvento.findByPk(eventoId);
     if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
 
-    // Compatibilidade:
-    // - payload antigo: { competicao_modalidade_ids: [1,2,3] }
-    // - payload novo:   { modalidades: [{ id: 1, taxa_inscricao: 50.00 }, ...] }
-    const body = req.body || {};
-    const modalidadesPayload = Array.isArray(body.modalidades)
-      ? body.modalidades
-      : (Array.isArray(body.competicao_modalidade_ids)
-          ? body.competicao_modalidade_ids.map((id) => ({ id, taxa_inscricao: 0 }))
-          : null);
-
-    if (!Array.isArray(modalidadesPayload)) {
-      return res.status(400).json({ msg: 'Informe modalidades (array de {id, taxa_inscricao}) ou competicao_modalidade_ids (array).' });
+    const { submodalidades } = req.body || {};
+    if (!Array.isArray(submodalidades)) {
+      return res.status(400).json({ msg: 'Informe submodalidades como array [{id, taxa_inscricao}].' });
     }
 
-    const ids = modalidadesPayload.map(m => m?.id).filter(Boolean);
-    if (ids.length === 0) {
-      // remove tudo
-      await CompeticaoEventoModalidade.destroy({ where: { evento_id: evento.id } });
-    } else {
-      const modalidades = await CompeticaoModalidade.findAll({ where: { id: { [Op.in]: ids } } });
-      if (modalidades.length !== ids.length) {
-        return res.status(400).json({ msg: 'Uma ou mais modalidades informadas são inválidas.' });
+    // valida ids
+    const ids = submodalidades.map(s => s?.id).filter(Boolean);
+    const mods = await CompeticaoModalidade.findAll({ where: { id: { [Op.in]: ids } } });
+
+    const tx = await db.sequelize.transaction();
+    try {
+      // zera vínculos
+      await CompeticaoEventoModalidade.destroy({ where: { evento_id: eventoId }, transaction: tx });
+
+      // recria vínculos com taxa
+      for (const s of submodalidades) {
+        const m = mods.find(mm => String(mm.id) === String(s.id));
+        if (!m) continue;
+        await CompeticaoEventoModalidade.create({
+          evento_id: Number(eventoId),
+          competicao_modalidade_id: m.id,
+          taxa_inscricao: Number(s.taxa_inscricao || 0)
+        }, { transaction: tx });
       }
 
-      // Recria vínculos na tabela de junção com taxa por modalidade
-      await CompeticaoEventoModalidade.destroy({ where: { evento_id: evento.id } });
-
-      const rows = modalidadesPayload.map((m) => ({
-        evento_id: evento.id,
-        competicao_modalidade_id: Number(m.id),
-        taxa_inscricao: Number(m.taxa_inscricao ?? 0),
-        created_at: new Date(),
-        updated_at: new Date(),
-      }));
-      await CompeticaoEventoModalidade.bulkCreate(rows);
+      await tx.commit();
+    } catch (e) {
+      await tx.rollback();
+      throw e;
     }
 
-    const refreshed = await CompeticaoEvento.findByPk(evento.id, {
-      include: [{ model: CompeticaoModalidade, as: 'modalidades', through: { attributes: ['taxa_inscricao'] } }]
-    });
+    const refreshed = await getEventoOr404(eventoId, res);
+    if (!refreshed) return;
     res.json(refreshed);
   } catch (err) {
     console.error('Erro ao atualizar modalidades do evento:', err);
@@ -252,131 +239,77 @@ exports.atualizarModalidadesDoEvento = async (req, res) => {
 };
 
 // =========================
-// Modalidades (Admin)
+// Submodalidades (Admin)
 // =========================
 
-exports.listarModalidades = async (req, res) => {
-  try {
-    const modalidades = await CompeticaoModalidade.findAll({
-      order: [['nome', 'ASC']],
-      include: [{ model: Modalidade, as: 'modalidadeFiliacao', attributes: ['id', 'nome'] }]
-    });
-    res.json(modalidades);
-  } catch (err) {
-    console.error('Erro ao listar modalidades de competição:', err);
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
-exports.atualizarModalidade = async (req, res) => {
-  try {
-    const mod = await CompeticaoModalidade.findByPk(req.params.modalidadeId);
-    if (!mod) return res.status(404).json({ msg: 'Modalidade de competição não encontrada.' });
-
-    const allowed = ['nome', 'tipo', 'ativo', 'filiacao_modalidade_id'];
-    const patch = {};
-    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
-
-    await mod.update(patch);
-    res.json(mod);
-  } catch (err) {
-    console.error('Erro ao atualizar modalidade de competição:', err);
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
-// ===== Submodalidades (CRUD admin) =====
 exports.listarSubmodalidades = async (req, res) => {
   try {
+    const { modalidade_id } = req.query;
     const where = {};
-    const modalidadeId = req.query?.modalidade_id || req.query?.modalidadeId;
-    if (modalidadeId) where.modalidade_id = modalidadeId;
+    if (modalidade_id) where.modalidade_id = modalidade_id;
 
-    const submodalidades = await CompeticaoModalidade.findAll({
+    const itens = await CompeticaoModalidade.findAll({
       where,
       order: [['nome', 'ASC']],
-      include: Modalidade ? [{ model: Modalidade, as: 'modalidadeMae', attributes: ['id', 'nome'] }] : [],
+      include: [{ model: Modalidade, as: 'modalidadeMae', attributes: ['id', 'nome'] }]
     });
 
-    return res.json(submodalidades);
+    res.json(itens);
   } catch (err) {
     console.error('Erro ao listar submodalidades:', err);
-    return res.status(500).json({ msg: 'Erro ao listar submodalidades.' });
+    res.status(500).send('Erro no servidor.');
   }
 };
 
 exports.criarSubmodalidade = async (req, res) => {
   try {
     const { code, nome, tipo, modalidade_id, ativo } = req.body || {};
-
     if (!code || !nome || !tipo || !modalidade_id) {
-      return res.status(400).json({ msg: 'Informe code, nome, tipo e modalidade_id.' });
+      return res.status(400).json({ msg: 'Campos obrigatórios: code, nome, tipo, modalidade_id.' });
     }
 
-    // garante que modalidade mãe existe
-    if (Modalidade) {
-      const mae = await Modalidade.findByPk(modalidade_id);
-      if (!mae) return res.status(400).json({ msg: 'Modalidade mãe (modalidade_id) não encontrada.' });
-    }
-
-    const exists = await CompeticaoModalidade.findOne({ where: { code } });
-    if (exists) return res.status(409).json({ msg: 'Já existe uma submodalidade com esse code.' });
-
-    const created = await CompeticaoModalidade.create({
+    const item = await CompeticaoModalidade.create({
       code,
       nome,
       tipo,
       modalidade_id,
-      ativo: (ativo === undefined ? 1 : (ativo ? 1 : 0)),
+      ativo: ativo ?? true
     });
 
-    return res.status(201).json(created);
+    res.status(201).json(item);
   } catch (err) {
     console.error('Erro ao criar submodalidade:', err);
-    return res.status(500).json({ msg: 'Erro ao criar submodalidade.' });
+    res.status(500).send('Erro no servidor.');
   }
 };
 
 exports.atualizarSubmodalidade = async (req, res) => {
   try {
-    const sub = await CompeticaoModalidade.findByPk(req.params.submodalidadeId);
-    if (!sub) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
+    const item = await CompeticaoModalidade.findByPk(req.params.submodalidadeId);
+    if (!item) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
 
     const allowed = ['code', 'nome', 'tipo', 'modalidade_id', 'ativo'];
     const patch = {};
     for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
 
-    if (patch.code && patch.code !== sub.code) {
-      const exists = await CompeticaoModalidade.findOne({ where: { code: patch.code } });
-      if (exists) return res.status(409).json({ msg: 'Já existe uma submodalidade com esse code.' });
-    }
-
-    if (patch.modalidade_id && Modalidade) {
-      const mae = await Modalidade.findByPk(patch.modalidade_id);
-      if (!mae) return res.status(400).json({ msg: 'Modalidade mãe (modalidade_id) não encontrada.' });
-    }
-
-    if ('ativo' in patch) patch.ativo = patch.ativo ? 1 : 0;
-
-    await sub.update(patch);
-    return res.json(sub);
+    await item.update(patch);
+    res.json(item);
   } catch (err) {
     console.error('Erro ao atualizar submodalidade:', err);
-    return res.status(500).json({ msg: 'Erro ao atualizar submodalidade.' });
+    res.status(500).send('Erro no servidor.');
   }
 };
 
-// Delete lógico (recomendado): marca submodalidade como inativa
 exports.excluirSubmodalidade = async (req, res) => {
   try {
-    const sub = await CompeticaoModalidade.findByPk(req.params.submodalidadeId);
-    if (!sub) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
+    const item = await CompeticaoModalidade.findByPk(req.params.submodalidadeId);
+    if (!item) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
 
-    await sub.update({ ativo: 0 });
-    return res.json({ msg: 'Submodalidade inativada.', submodalidade: sub });
+    await item.update({ ativo: false });
+    res.json({ ok: true });
   } catch (err) {
     console.error('Erro ao excluir submodalidade:', err);
-    return res.status(500).json({ msg: 'Erro ao excluir submodalidade.' });
+    res.status(500).send('Erro no servidor.');
   }
 };
 
@@ -396,7 +329,6 @@ exports.elegibilidadeEvento = async (req, res) => {
     const atleta = await getAtletaWithUsuario(atletaId);
     if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de verificar elegibilidade.' });
 
-    // Idade na data do evento (regulamento cita a data da primeira luta; usamos data_evento como referência padrão)
     const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
     const grupoEtario = grupoEtarioFromAge(idadeAnos);
 
@@ -407,124 +339,78 @@ exports.elegibilidadeEvento = async (req, res) => {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
-    const pesoTabela = pesoDivisoesByGrupo(grupoEtario);
-
-    const result = [];
-    for (const m of (evento.modalidades || [])) {
-      const requiredModalidadeId = m.filiacao_modalidade_id;
-
-      // taxa por modalidade (fallback: taxa do evento)
-      const taxaModalidade = Number(m?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
-
-      const fightConfig = fightConfigByModalidadeCode(m.code, idadeAnos);
-
-      if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`,
-          fight_config: fightConfig,
-        });
-        continue;
-      }
-
-      if (!requiredModalidadeId) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).',
-          fight_config: fightConfig,
-        });
-        continue;
-      }
-
-      const filiacao = await findFiliacaoAtiva(atletaId, requiredModalidadeId);
-      if (!filiacao) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: 'Você não possui filiação ATIVA na modalidade exigida.',
-          fight_config: fightConfig,
-        });
-        continue;
-      }
-
-      result.push({
-        competicao_modalidade_id: m.id,
-        code: m.code,
-        nome: m.nome,
-        tipo: m.tipo,
-        taxa_inscricao: taxaModalidade,
-        elegivel: true,
-        filiacao_id: filiacao.id,
-        fight_config: fightConfig,
-      });
+    const modalidadeMaeId = evento.modalidade_id;
+    if (!modalidadeMaeId) {
+      return res.status(400).json({ msg: 'Evento sem modalidade mãe configurada (admin).' });
     }
 
-    res.json({
-      eventoId: evento.id,
-      status: evento.status,
-      idadeAnos,
-      grupoEtario,
-      peso_divisoes: pesoTabela?.cortes || null,
-      peso_acima_de: pesoTabela?.acimaDe || null,
-      modalidades: result,
+    const filiacao = await findFiliacaoAtiva(atletaId, modalidadeMaeId);
+
+    const result = (evento.modalidades || []).map(m => {
+      if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
+        return {
+          competicao_modalidade_id: m.id,
+          nome: m.nome,
+          tipo: m.tipo,
+          elegivel: false,
+          motivo: `Submodalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`
+        };
+      }
+
+      if (!filiacao) {
+        return {
+          competicao_modalidade_id: m.id,
+          nome: m.nome,
+          tipo: m.tipo,
+          elegivel: false,
+          motivo: 'Você não possui filiação ATIVA na modalidade mãe exigida para este evento.'
+        };
+      }
+
+      return {
+        competicao_modalidade_id: m.id,
+        nome: m.nome,
+        tipo: m.tipo,
+        elegivel: true,
+        filiacao_id: filiacao.id,
+        taxa_inscricao: Number(m.CompeticaoEventoModalidade?.taxa_inscricao || 0)
+      };
     });
+
+    res.json({ eventoId: evento.id, status: evento.status, idadeAnos, grupoEtario, modalidades: result });
   } catch (err) {
     console.error('Erro ao calcular elegibilidade:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
 
+// Cria N inscrições + 1 invoice com itens
+// body: { competicao_modalidade_ids: number[], peso_kg?, categoria_combate? }
 exports.criarInscricao = async (req, res) => {
+  const { eventoId } = req.params;
+
   try {
     if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
     if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
 
-    const { competicao_modalidade_id, peso_kg, categoria_combate } = req.body || {};
-    if (!competicao_modalidade_id || !peso_kg || !categoria_combate) {
-      return res.status(400).json({ msg: 'Campos obrigatórios: competicao_modalidade_id, peso_kg, categoria_combate.' });
+    const { competicao_modalidade_ids, peso_kg, categoria_combate } = req.body || {};
+    if (!Array.isArray(competicao_modalidade_ids) || competicao_modalidade_ids.length === 0) {
+      return res.status(400).json({ msg: 'Informe competicao_modalidade_ids como array (1 ou mais submodalidades).' });
     }
 
-    const evento = await getEventoOr404(req.params.eventoId, res);
+    const evento = await getEventoOr404(eventoId, res);
     if (!evento) return;
     if (evento.status !== 'INSCRICOES_ABERTAS') {
       return res.status(400).json({ msg: `Inscrições não estão abertas (status atual: ${evento.status}).` });
-    }
-
-    const mod = (evento.modalidades || []).find(m => String(m.id) === String(competicao_modalidade_id));
-    if (!mod) {
-      return res.status(400).json({ msg: 'Esta modalidade não está habilitada para o evento.' });
-    }
-
-    if (!mod.filiacao_modalidade_id) {
-      return res.status(400).json({ msg: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).' });
     }
 
     const atletaId = req.usuario.id;
     const atleta = await getAtletaWithUsuario(atletaId);
     if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de se inscrever.' });
 
-    const filiacao = await findFiliacaoAtiva(atletaId, mod.filiacao_modalidade_id);
-    if (!filiacao) {
-      return res.status(403).json({ msg: 'Você não possui filiação ativa na modalidade exigida para esta inscrição.' });
-    }
-
-    // Idade na data do evento (regulamento cita a data da primeira luta; usamos data_evento como referência padrão)
     const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
     const grupoEtario = grupoEtarioFromAge(idadeAnos);
+
     if (!atleta.sexo) {
       return res.status(400).json({ msg: 'Atualize seu perfil: informe o sexo (M/F) para competir.' });
     }
@@ -532,36 +418,26 @@ exports.criarInscricao = async (req, res) => {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
-    // Regulamento: modalidades permitidas por categoria
-    if (!modalidadePermitidaPorGrupo(grupoEtario, mod.code)) {
-      return res.status(400).json({ msg: `Esta modalidade não é permitida para sua categoria (${grupoEtario}) conforme regulamento.` });
+    const modalidadeMaeId = evento.modalidade_id;
+    if (!modalidadeMaeId) {
+      return res.status(400).json({ msg: 'Evento sem modalidade mãe configurada (admin).' });
     }
 
-    // Regulamento: peso mínimo por grupo (tabela oficial de divisões pode ser adicionada depois)
-    const pesoCheck = validatePesoMinimo(grupoEtario, peso_kg);
-    if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
-
-    const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
-    const divisaoPeso = divisaoPesoFromGrupo(grupoEtario, peso_kg);
-    if (!divisaoPeso) {
-      return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso (tabela oficial).' });
+    const filiacao = await findFiliacaoAtiva(atletaId, modalidadeMaeId);
+    if (!filiacao) {
+      return res.status(403).json({ msg: 'Você não possui filiação ativa na modalidade mãe exigida para este evento.' });
     }
 
-    // Regulamento: categoria por nível técnico (faixas/graduações)
-    const catCheck = validateCategoriaCombate(categoria_combate, filiacao?.graduacao?.nome);
-    if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
-
-    // Evita duplicidade (unique uq_comp_inscricao)
-    const existente = await CompeticaoInscricao.findOne({
-      where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: mod.id }
-    });
-    if (existente) {
-      return res.status(400).json({ msg: 'Você já possui inscrição nesta modalidade para este evento.' });
+    // Validações adicionais (quando informadas)
+    if (peso_kg != null) {
+      const pesoCheck = validatePesoMinimo(grupoEtario, peso_kg);
+      if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
     }
 
-    let status = 'PENDENTE_PAGAMENTO';
-    // taxa por modalidade (fallback: taxa do evento)
-    const taxa = Number(mod?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
+    if (categoria_combate != null) {
+      const catCheck = validateCategoriaCombate(categoria_combate, filiacao?.graduacao?.nome);
+      if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
+    }
 
     // Autorização especial (apenas atletas acima de 40 anos)
     const precisaAutorizacao = requiresAutorizacaoEspecial(idadeAnos);
@@ -569,7 +445,6 @@ exports.criarInscricao = async (req, res) => {
       if (!hasMinAntecedenciaDias(evento.data_evento, new Date(), 30)) {
         return res.status(400).json({ msg: 'Para atletas acima de 40 anos, a Autorização Especial deve ser solicitada com antecedência mínima de 30 dias.' });
       }
-
       const authority = authorityByEscopo(evento.escopo);
       await CompeticaoAutorizacao.findOrCreate({
         where: { evento_id: evento.id, atleta_id: atletaId, authority },
@@ -577,169 +452,126 @@ exports.criarInscricao = async (req, res) => {
       });
     }
 
-    if (taxa <= 0) {
-      // Se não há taxa, consideramos confirmada (ou aguardando autorização se necessário)
-      status = precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA';
+    // Mapa das submodalidades habilitadas no evento
+    const habilitadas = new Map();
+    for (const m of (evento.modalidades || [])) {
+      habilitadas.set(String(m.id), m);
     }
 
-    const inscricao = await CompeticaoInscricao.create({
-      evento_id: evento.id,
-      atleta_id: atletaId,
-      filiacao_id: filiacao.id,
-      competicao_modalidade_id: mod.id,
-      peso_kg,
-      idade_anos: idadeAnos,
-      grupo_etario: grupoEtario,
-      divisao_idade: divisaoIdade,
-      divisao_peso: divisaoPeso,
-      categoria_combate,
-      status,
-    });
+    const idsUnicos = [...new Set(competicao_modalidade_ids.map(String))];
+    const escolhidas = [];
 
-    // Enriquecemos a resposta com labels úteis para o frontend (sem alterar o schema).
-    const payload = inscricao.toJSON();
-    payload.divisao_peso_label = divisaoPesoLabel(divisaoPeso);
-    payload.fight_config = fightConfigByModalidadeCode(mod.code, idadeAnos);
+    for (const idStr of idsUnicos) {
+      const m = habilitadas.get(idStr);
+      if (!m) return res.status(400).json({ msg: `Submodalidade ${idStr} não está habilitada para o evento.` });
 
-    res.status(201).json(payload);
-  } catch (err) {
-    console.error('Erro ao criar inscrição:', err);
-    // Constraint do MySQL (unique) vira erro aqui
-    res.status(500).send('Erro no servidor.');
-  }
-};
-
-// Cria inscrições em lote (1 inscrição por modalidade selecionada)
-// Payload: { modalidade_ids: [1,2,3], peso_kg: 70.5, categoria_combate: 'COLORIDAS' }
-exports.criarInscricoesLote = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-
-    const { modalidade_ids, peso_kg, categoria_combate } = req.body || {};
-    if (!Array.isArray(modalidade_ids) || modalidade_ids.length === 0) {
-      return res.status(400).json({ msg: 'Informe modalidade_ids como array (mínimo 1).' });
-    }
-    if (!peso_kg || !categoria_combate) {
-      return res.status(400).json({ msg: 'Campos obrigatórios: peso_kg, categoria_combate.' });
-    }
-
-    const evento = await getEventoOr404(req.params.eventoId, res);
-    if (!evento) return;
-    if (evento.status !== 'INSCRICOES_ABERTAS') {
-      return res.status(400).json({ msg: `Inscrições não estão abertas (status atual: ${evento.status}).` });
-    }
-
-    const atletaId = req.usuario.id;
-    const atleta = await getAtletaWithUsuario(atletaId);
-    if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de se inscrever.' });
-
-    const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
-    const grupoEtario = grupoEtarioFromAge(idadeAnos);
-    if (!atleta.sexo) return res.status(400).json({ msg: 'Atualize seu perfil: informe o sexo (M/F) para competir.' });
-    if (!grupoEtario) return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
-
-    const pesoCheck = validatePesoMinimo(grupoEtario, peso_kg);
-    if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
-    const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
-    const divisaoPeso = divisaoPesoFromGrupo(grupoEtario, peso_kg);
-    if (!divisaoPeso) {
-      return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso (tabela oficial).' });
-    }
-
-    const catCheck = validateCategoriaCombate(categoria_combate, null);
-    if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
-
-    // Normaliza IDs e garante que todas existem no evento
-    const wanted = [...new Set(modalidade_ids.map((x) => Number(x)).filter(Boolean))];
-    const modsEvento = (evento.modalidades || []);
-    const byId = new Map(modsEvento.map(m => [Number(m.id), m]));
-
-    for (const mid of wanted) {
-      const mod = byId.get(mid);
-      if (!mod) return res.status(400).json({ msg: `A modalidade ${mid} não está habilitada para o evento.` });
-      if (!mod.filiacao_modalidade_id) {
-        return res.status(400).json({ msg: `Modalidade ${mod.nome} ainda não vinculada a uma modalidade de filiação (configuração admin).` });
+      // regulamento por grupo
+      if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
+        return res.status(400).json({ msg: `Submodalidade ${m.nome} não é permitida para sua categoria (${grupoEtario}).` });
       }
-      if (!modalidadePermitidaPorGrupo(grupoEtario, mod.code)) {
-        return res.status(400).json({ msg: `A modalidade ${mod.nome} não é permitida para sua categoria (${grupoEtario}) conforme regulamento.` });
+
+      // valida se pertence à modalidade mãe do evento
+      if (String(m.modalidade_id) !== String(modalidadeMaeId)) {
+        return res.status(400).json({ msg: `Submodalidade ${m.nome} não pertence à modalidade mãe deste evento.` });
       }
+
+      escolhidas.push(m);
     }
 
-    // Valida filiações e duplicidade antes de criar
-    const filiacaoByModId = {};
-    for (const mid of wanted) {
-      const mod = byId.get(mid);
-      const filiacao = await findFiliacaoAtiva(atletaId, mod.filiacao_modalidade_id);
-      if (!filiacao) {
-        return res.status(403).json({ msg: `Você não possui filiação ativa na modalidade exigida para: ${mod.nome}.` });
-      }
-      filiacaoByModId[mid] = filiacao;
-    }
+    const tx = await db.sequelize.transaction();
 
-    const existentes = await CompeticaoInscricao.findAll({
-      where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: { [Op.in]: wanted } },
-      attributes: ['competicao_modalidade_id']
-    });
-    if (existentes?.length) {
-      const nomes = existentes.map(e => byId.get(Number(e.competicao_modalidade_id))?.nome || e.competicao_modalidade_id);
-      return res.status(400).json({ msg: `Você já possui inscrição nas modalidades: ${nomes.join(', ')}.` });
-    }
-
-    // Autorização especial (acima de 40)
-    const precisaAutorizacao = requiresAutorizacaoEspecial(idadeAnos);
-    if (precisaAutorizacao) {
-      if (!hasMinAntecedenciaDias(evento.data_evento, new Date(), 30)) {
-        return res.status(400).json({ msg: 'Para atletas acima de 40 anos, a Autorização Especial deve ser solicitada com antecedência mínima de 30 dias.' });
-      }
-      const authority = authorityByEscopo(evento.escopo);
-      await CompeticaoAutorizacao.findOrCreate({
-        where: { evento_id: evento.id, atleta_id: atletaId, authority },
-        defaults: { status: 'PENDENTE', requested_at: new Date() }
-      });
-    }
-
-    const t = await db.sequelize.transaction();
     try {
-      const criadas = [];
-      for (const mid of wanted) {
-        const mod = byId.get(mid);
-        const filiacao = filiacaoByModId[mid];
-        const taxa = Number(mod?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
-        let status = 'PENDENTE_PAGAMENTO';
-        if (taxa <= 0) status = precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA';
+      const inscricoesCriadas = [];
+      const itens = [];
+      let total = 0;
 
-        const inscricao = await CompeticaoInscricao.create({
+      for (const m of escolhidas) {
+        // evita duplicidade
+        const existente = await CompeticaoInscricao.findOne({
+          where: { evento_id: evento.id, atleta_id: atletaId, competicao_modalidade_id: m.id },
+          transaction: tx,
+          lock: tx.LOCK.UPDATE
+        });
+        if (existente) {
+          throw new Error(`Você já possui inscrição na submodalidade ${m.nome} para este evento.`);
+        }
+
+        const divisaoIdade = divisaoIdadeFromGrupo(grupoEtario);
+        const divisaoPeso = (peso_kg != null) ? divisaoPesoPlaceholder(peso_kg) : null;
+
+        const taxa = Number(m.CompeticaoEventoModalidade?.taxa_inscricao || 0);
+        total += taxa;
+
+        const statusBase = (total <= 0)
+          ? (precisaAutorizacao ? 'AGUARDANDO_AUTORIZACAO' : 'CONFIRMADA')
+          : 'PENDENTE_PAGAMENTO';
+
+        const insc = await CompeticaoInscricao.create({
           evento_id: evento.id,
           atleta_id: atletaId,
           filiacao_id: filiacao.id,
-          competicao_modalidade_id: mod.id,
-          peso_kg,
+          competicao_modalidade_id: m.id,
+          peso_kg: (peso_kg != null ? peso_kg : null),
           idade_anos: idadeAnos,
           grupo_etario: grupoEtario,
           divisao_idade: divisaoIdade,
           divisao_peso: divisaoPeso,
-          categoria_combate,
-          status,
-        }, { transaction: t });
+          categoria_combate: (categoria_combate != null ? categoria_combate : null),
+          status: statusBase,
+        }, { transaction: tx });
 
-        const payload = inscricao.toJSON();
-        payload.taxa_inscricao = taxa;
-        payload.divisao_peso_label = divisaoPesoLabel(divisaoPeso);
-        payload.fight_config = fightConfigByModalidadeCode(mod.code, idadeAnos);
-        criadas.push(payload);
+        inscricoesCriadas.push(insc);
+
+        itens.push({
+          competicao_inscricao_id: insc.id,
+          descricao: `${m.nome}`,
+          valor: taxa
+        });
       }
 
-      await t.commit();
-      const total = criadas.reduce((acc, i) => acc + Number(i.taxa_inscricao || 0), 0);
-      return res.status(201).json({ inscricoes: criadas, total });
+      // cria invoice (uma por ato de inscrição)
+      const invoice = await CompeticaoInvoice.create({
+        atleta_id: atletaId,
+        evento_id: evento.id,
+        status: (total > 0 ? 'PENDENTE' : 'PAGO'),
+        valor_total: total,
+      }, { transaction: tx });
+
+      for (const it of itens) {
+        await CompeticaoInvoiceItem.create({
+          invoice_id: invoice.id,
+          competicao_inscricao_id: it.competicao_inscricao_id,
+          descricao: it.descricao,
+          valor: it.valor
+        }, { transaction: tx });
+      }
+
+      await tx.commit();
+
+      const invoiceFull = await CompeticaoInvoice.findByPk(invoice.id, {
+        include: [
+          { model: CompeticaoEvento, as: 'evento' },
+          { model: CompeticaoInvoiceItem, as: 'itens', include: [{ model: CompeticaoInscricao, as: 'inscricao', include: [{ model: CompeticaoModalidade, as: 'competicaoModalidade' }] }] },
+          { model: Pagamento, as: 'pagamentos', include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] }
+        ]
+      });
+
+      return res.status(201).json({
+        invoice: invoiceFull,
+        total: Number(total.toFixed(2)),
+        inscricoes: invoiceFull.itens?.map(i => i.inscricao) || []
+      });
+
     } catch (e) {
-      await t.rollback();
-      console.error('Erro ao criar inscrições em lote:', e);
+      await tx.rollback();
+      const msg = e?.message || 'Erro ao criar inscrição.';
+      if (msg.startsWith('Você já possui inscrição')) return res.status(400).json({ msg });
+      console.error('Erro ao criar inscrição:', e);
       return res.status(500).send('Erro no servidor.');
     }
+
   } catch (err) {
-    console.error('Erro ao criar inscrições em lote:', err);
+    console.error('Erro ao criar inscrição:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
@@ -755,68 +587,167 @@ exports.minhasInscricoes = async (req, res) => {
       include: [
         { model: CompeticaoEvento, as: 'evento' },
         { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-        { model: Pagamento, as: 'pagamentos', include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] },
+        { model: CompeticaoInvoiceItem, as: 'invoiceItem', include: [{ model: CompeticaoInvoice, as: 'invoice' }] },
       ]
     });
 
-    const payload = (inscricoes || []).map((i) => {
-      const j = i.toJSON();
-      j.divisao_peso_label = divisaoPesoLabel(j.divisao_peso);
-      j.fight_config = fightConfigByModalidadeCode(j.competicaoModalidade?.code, j.idade_anos);
-      return j;
-    });
-
-    res.json(payload);
+    res.json(inscricoes);
   } catch (err) {
     console.error('Erro ao listar minhas inscrições:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
 
+exports.detalheInscricao = async (req, res) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
+
+    const where = { id: req.params.inscricaoId };
+    if (req.usuario.tipo === 'atleta') where.atleta_id = req.usuario.id;
+
+    const insc = await CompeticaoInscricao.findOne({
+      where,
+      include: [
+        { model: CompeticaoEvento, as: 'evento' },
+        { model: CompeticaoModalidade, as: 'competicaoModalidade' },
+        { model: CompeticaoInvoiceItem, as: 'invoiceItem', include: [{ model: CompeticaoInvoice, as: 'invoice' }] },
+      ]
+    });
+
+    if (!insc) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
+    res.json(insc);
+  } catch (err) {
+    console.error('Erro ao obter detalhe da inscrição:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+exports.cancelarInscricao = async (req, res) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
+    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
+
+    const insc = await CompeticaoInscricao.findOne({
+      where: { id: req.params.inscricaoId, atleta_id: req.usuario.id }
+    });
+
+    if (!insc) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
+    if (insc.status !== 'PENDENTE_PAGAMENTO') {
+      return res.status(400).json({ msg: 'Só é possível cancelar inscrições pendentes de pagamento.' });
+    }
+
+    await insc.update({ status: 'CANCELADA' });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Erro ao cancelar inscrição:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
 // =========================
-// Cobrança (Inscrição)
+// Invoice (Atleta)
 // =========================
 
-exports.criarCobrancaInscricao = async (req, res) => {
-  const { inscricaoId } = req.params;
+exports.minhasInvoices = async (req, res) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
+    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
+
+    const invoices = await CompeticaoInvoice.findAll({
+      where: { atleta_id: req.usuario.id },
+      order: [['created_at', 'DESC']],
+      include: [
+        { model: CompeticaoEvento, as: 'evento' },
+        { model: CompeticaoInvoiceItem, as: 'itens' },
+        { model: Pagamento, as: 'pagamentos', include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] }
+      ]
+    });
+
+    res.json(invoices);
+  } catch (err) {
+    console.error('Erro ao listar minhas invoices:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+exports.getInvoice = async (req, res) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
+
+    const where = { id: req.params.invoiceId };
+    if (req.usuario.tipo === 'atleta') where.atleta_id = req.usuario.id;
+
+    const invoice = await CompeticaoInvoice.findOne({
+      where,
+      include: [
+        { model: CompeticaoEvento, as: 'evento' },
+        { model: CompeticaoInvoiceItem, as: 'itens', include: [{ model: CompeticaoInscricao, as: 'inscricao', include: [{ model: CompeticaoModalidade, as: 'competicaoModalidade' }] }] },
+        { model: Pagamento, as: 'pagamentos', include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] }
+      ]
+    });
+
+    if (!invoice) return res.status(404).json({ msg: 'Invoice não encontrada.' });
+    res.json(invoice);
+  } catch (err) {
+    console.error('Erro ao obter invoice:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+exports.cancelarInvoice = async (req, res) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
+    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
+
+    const invoice = await CompeticaoInvoice.findOne({
+      where: { id: req.params.invoiceId, atleta_id: req.usuario.id }
+    });
+
+    if (!invoice) return res.status(404).json({ msg: 'Invoice não encontrada.' });
+    if (invoice.status !== 'PENDENTE') return res.status(400).json({ msg: 'Somente invoices pendentes podem ser canceladas.' });
+
+    await invoice.update({ status: 'CANCELADO' });
+    // opcional: cancelar inscrições pendentes associadas
+    await CompeticaoInvoiceItem.update({ updated_at: new Date() }, { where: { invoice_id: invoice.id } });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Erro ao cancelar invoice:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+// =========================
+// Cobrança (Invoice)
+// =========================
+
+exports.criarCobrancaInvoice = async (req, res) => {
+  const { invoiceId } = req.params;
   const { metodoPagamentoId, forceNew } = req.body || {};
 
   if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
   if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
 
   try {
-    const inscricao = await CompeticaoInscricao.findOne({
+    const invoice = await CompeticaoInvoice.findOne({
       where: {
-        id: inscricaoId,
+        id: invoiceId,
         atleta_id: req.usuario.id,
-        status: 'PENDENTE_PAGAMENTO'
+        status: 'PENDENTE'
       },
       include: [
         { model: CompeticaoEvento, as: 'evento' },
-        { model: CompeticaoModalidade, as: 'competicaoModalidade' },
+        { model: CompeticaoInvoiceItem, as: 'itens' },
       ]
     });
 
-    if (!inscricao) {
-      return res.status(404).json({ msg: 'Inscrição não encontrada ou não está pendente de pagamento.' });
+    if (!invoice) {
+      return res.status(404).json({ msg: 'Invoice não encontrada ou não está pendente de pagamento.' });
     }
 
-    const evento = inscricao.evento;
-    // taxa por modalidade (fallback: taxa do evento)
-    let taxa = 0;
-    try {
-      const vinculo = await CompeticaoEventoModalidade.findOne({
-        where: {
-          evento_id: inscricao.evento_id,
-          competicao_modalidade_id: inscricao.competicao_modalidade_id,
-        }
-      });
-      taxa = Number(vinculo?.taxa_inscricao ?? evento?.taxa_inscricao ?? 0);
-    } catch {
-      taxa = Number(evento?.taxa_inscricao ?? 0);
-    }
-    if (taxa <= 0) {
-      return res.status(400).json({ msg: 'Este evento não possui taxa de inscrição.' });
+    const total = Number(invoice.valor_total || 0);
+    if (total <= 0) {
+      return res.status(400).json({ msg: 'Esta invoice não possui valor a pagar.' });
     }
 
     const atleta = await getAtletaWithUsuario(req.usuario.id);
@@ -841,10 +772,10 @@ exports.criarCobrancaInscricao = async (req, res) => {
       metodoPagamento = byProvider('cora') || byProvider('pagbank') || metodosAtivos[0];
     }
 
-    // Se já existe pagamento pendente e não forçou novo
+    // Reuso de cobrança pendente
     if (!forceNew) {
       const pendente = await Pagamento.findOne({
-        where: { competicao_inscricao_id: inscricaoId, status: 'pendente' },
+        where: { competicao_invoice_id: invoiceId, status: 'pendente' },
         order: [['createdAt', 'DESC']],
         include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }]
       });
@@ -862,39 +793,25 @@ exports.criarCobrancaInscricao = async (req, res) => {
       }
     }
 
-    const valorCentavos = Math.round(taxa * 100);
+    const valorCentavos = Math.round(total * 100);
     const cpfDigits = String(atleta.cpf || '').replace(/\D/g, '');
     const cepDigits = String(atleta.cep || '').replace(/\D/g, '');
 
-    const metodoConfig = (metodoPagamento.configuracao && typeof metodoPagamento.configuracao === 'object')
-      ? metodoPagamento.configuracao
-      : {};
-
     // Cria pagamento local
     let pagamento = await Pagamento.create({
-      competicao_inscricao_id: inscricaoId,
+      competicao_invoice_id: invoiceId,
       metodo_pagamento_id: metodoPagamento.id,
-      valor_pago: taxa,
+      valor_pago: total,
       status: 'pendente',
     });
 
-    const inferProvider = () => {
-      const p = safeProviderFromMetodo(metodoPagamento);
-      if (p) return p;
-      const nome = (metodoPagamento.nome || '').toLowerCase();
-      if (nome.includes('cora')) return 'cora';
-      if (nome.includes('pagbank') || nome.includes('pagseguro')) return 'pagbank';
-      if (nome === 'pix') return 'pagbank';
-      return null;
-    };
-
-    let provider = inferProvider() || 'pagbank';
+    let provider = inferProviderFromMetodo(metodoPagamento) || 'pagbank';
     let fallbackUsed = false;
 
     const finalizar = async (metodoFinal, providerFinal, gatewayData) => {
       await pagamento.update({
         metodo_pagamento_id: metodoFinal.id,
-        valor_pago: taxa,
+        valor_pago: total,
         id_transacao_gateway: gatewayData.idTransacaoGateway,
         qr_code_pix: gatewayData.qrCodeText || null,
         linha_digitavel_boleto: gatewayData.linhaDigitavel || null,
@@ -911,6 +828,8 @@ exports.criarCobrancaInscricao = async (req, res) => {
       });
     };
 
+    const descricao = `Inscrição Competição: ${invoice.evento?.nome || 'Evento'} (${invoice.itens?.length || 0} modalidade(s))`;
+
     try {
       if (provider === 'cora') {
         const missing = [];
@@ -924,179 +843,174 @@ exports.criarCobrancaInscricao = async (req, res) => {
           return res.status(400).json({ msg: `Para pagar via Cora, atualize seu endereço do perfil. Campos faltando: ${missing.join(', ')}.` });
         }
 
-        const dueDays = Number(metodoConfig.dueDays ?? 1);
-        const dueDate = new Date(Date.now() + (Math.max(0, dueDays) * 86400000));
-        const dueDateStr = dueDate.toISOString().slice(0, 10);
+        const addrNumber = parseAddressNumber(atleta.logradouro) || '0';
 
-        const paymentForms = Array.isArray(metodoConfig.payment_forms)
-          ? metodoConfig.payment_forms
-          : ['BANK_SLIP', 'PIX'];
-
-        const numero = metodoConfig.address_number || parseAddressNumber(atleta.logradouro) || 'S/N';
-
-        const payloadCora = {
-          code: `CONFBEC_PAG_${pagamento.id}`,
-          payment_forms: paymentForms,
-          customer: {
-            name: atleta.nome_completo,
-            email: atleta.usuario.email,
-            document: { identity: cpfDigits, type: 'CPF' },
-            address: {
-              street: atleta.logradouro,
-              number: String(numero),
-              district: atleta.bairro,
-              city: atleta.cidade,
-              state: atleta.estado,
-              complement: metodoConfig.address_complement || 'N/A',
-              zip_code: cepDigits
-            }
+        const resp = await coraClient.criarCobrancaPix({
+          valorCentavos,
+          nome: atleta.nome || 'Atleta',
+          cpf: cpfDigits,
+          email: atleta.usuario.email,
+          descricao,
+          endereco: {
+            logradouro: atleta.logradouro,
+            numero: addrNumber,
+            bairro: atleta.bairro,
+            cidade: atleta.cidade,
+            estado: atleta.estado,
+            cep: cepDigits,
           },
-          services: [{
-            name: `Inscrição ${evento?.nome || 'Competição'}`,
-            description: `Inscrição #${inscricao.id} - ${inscricao.competicaoModalidade?.nome || ''}`.trim(),
-            amount: valorCentavos,
-          }],
-          payment_terms: { due_date: dueDateStr }
-        };
+        }, metodoPagamento.configuracao || {});
 
-        const idempotencyKey = crypto.randomUUID();
-        const coraResp = await coraClient.createInvoice(payloadCora, { idempotencyKey });
-
-        const idTransacaoGateway = coraResp?.id || coraResp?.invoice_id || coraResp?.payment?.id || null;
-        const linhaDigitavel =
-          coraResp?.bank_slip?.digitable_line ||
-          coraResp?.digitable_line ||
-          coraResp?.boleto?.digitable_line ||
-          null;
-        const qrCodeText =
-          coraResp?.pix?.emv ||
-          coraResp?.pix?.qr_code ||
-          coraResp?.pix?.payload ||
-          coraResp?.qr_code ||
-          null;
-
-        if (!idTransacaoGateway) throw new Error('Resposta da Cora sem ID.');
-
-        return await finalizar(metodoPagamento, 'cora', { idTransacaoGateway, qrCodeText, linhaDigitavel });
+        await invoice.update({ gateway: 'cora', id_transacao_gateway: resp.idTransacaoGateway || null });
+        return finalizar(metodoPagamento, 'cora', resp);
       }
 
-      // Default: PagBank
-      provider = 'pagbank';
-      const appUrl = process.env.APP_PUBLIC_URL;
-      const notificationUrls = [];
-      if (appUrl) notificationUrls.push(`${appUrl}/api/pagamentos/webhook/pagbank`);
+      // default pagbank
+      const resp = await pagbankClient.criarCobrancaPix({
+        valorCentavos,
+        nome: atleta.nome || 'Atleta',
+        cpf: cpfDigits,
+        email: atleta.usuario.email,
+        descricao,
+      }, metodoPagamento.configuracao || {});
 
-      const payloadPagBank = {
-        reference_id: `CONFBEC_PAG_${pagamento.id}`,
-        customer: {
-          name: atleta.nome_completo,
-          email: atleta.usuario.email,
-          tax_id: cpfDigits,
-        },
-        items: [{
-          reference_id: `INSCRICAO_${inscricao.id}`,
-          name: `Inscrição ${evento?.nome || 'Competição'}`,
-          quantity: 1,
-          unit_amount: valorCentavos,
-        }],
-        qr_codes: [{ amount: { value: valorCentavos } }],
-        notification_urls: notificationUrls,
-      };
+      await invoice.update({ gateway: 'pagbank', id_transacao_gateway: resp.idTransacaoGateway || null });
+      return finalizar(metodoPagamento, 'pagbank', resp);
 
-      const respPagBank = await pagbankClient.createOrderPix(payloadPagBank);
-      const idTransacaoGateway = respPagBank.data?.id;
-      const qrCodeText = respPagBank.data?.qr_codes?.[0]?.text;
-      if (!idTransacaoGateway || !qrCodeText) throw new Error('Resposta inválida do PagBank.');
+    } catch (errProvider) {
+      console.error('Erro ao criar cobrança no provider:', errProvider);
 
-      return await finalizar(metodoPagamento, 'pagbank', { idTransacaoGateway, qrCodeText, linhaDigitavel: null });
-    } catch (gatewayErr) {
-      // Fallback: se Cora falhar, tenta PagBank
-      const coraFailed = provider === 'cora';
-      const fallbackMetodo = metodosAtivos.find(m => {
-        const p = safeProviderFromMetodo(m) || (typeof m.nome === 'string' ? m.nome.toLowerCase() : '');
-        return p.includes('pagbank') || p.includes('pagseguro') || p === 'pagbank' || p === 'pix';
-      });
+      // fallback automático Cora -> PagBank
+      if (provider === 'cora') {
+        const byProvider = (prov) => metodosAtivos.find(m => {
+          const p = safeProviderFromMetodo(m) || (typeof m.nome === 'string' ? m.nome.toLowerCase() : '');
+          return p.includes(prov);
+        });
 
-      if (coraFailed && fallbackMetodo) {
-        fallbackUsed = true;
-        try {
-          const appUrl = process.env.APP_PUBLIC_URL;
-          const notificationUrls = [];
-          if (appUrl) notificationUrls.push(`${appUrl}/api/pagamentos/webhook/pagbank`);
+        const fallbackMetodo = byProvider('pagbank') || metodosAtivos.find(m => (m.nome || '').toLowerCase().includes('pix')) || null;
+        if (fallbackMetodo) {
+          fallbackUsed = true;
+          const resp = await pagbankClient.criarCobrancaPix({
+            valorCentavos,
+            nome: atleta.nome || 'Atleta',
+            cpf: cpfDigits,
+            email: atleta.usuario.email,
+            descricao,
+          }, fallbackMetodo.configuracao || {});
 
-          const payloadPagBank = {
-            reference_id: `CONFBEC_PAG_${pagamento.id}`,
-            customer: {
-              name: atleta.nome_completo,
-              email: atleta.usuario.email,
-              tax_id: cpfDigits,
-            },
-            items: [{
-              reference_id: `INSCRICAO_${inscricao.id}`,
-              name: `Inscrição ${evento?.nome || 'Competição'}`,
-              quantity: 1,
-              unit_amount: valorCentavos,
-            }],
-            qr_codes: [{ amount: { value: valorCentavos } }],
-            notification_urls: notificationUrls,
-          };
-
-          const respPagBank = await pagbankClient.createOrderPix(payloadPagBank);
-          const idTransacaoGateway = respPagBank.data?.id;
-          const qrCodeText = respPagBank.data?.qr_codes?.[0]?.text;
-          if (!idTransacaoGateway || !qrCodeText) throw new Error('Resposta inválida do PagBank (fallback).');
-          return await finalizar(fallbackMetodo, 'pagbank', { idTransacaoGateway, qrCodeText, linhaDigitavel: null });
-        } catch (fallbackErr) {
-          console.error('Fallback PagBank falhou:', fallbackErr.response?.data || fallbackErr.message);
+          await invoice.update({ gateway: 'pagbank', id_transacao_gateway: resp.idTransacaoGateway || null });
+          return finalizar(fallbackMetodo, 'pagbank', resp);
         }
       }
 
-      console.error('Falha ao criar cobrança inscrição:', gatewayErr.response?.data || gatewayErr.message);
       await pagamento.destroy();
-      return res.status(502).json({ msg: 'Falha ao se comunicar com o gateway de pagamento.' });
+      return res.status(500).json({ msg: 'Falha ao gerar cobrança. Tente novamente ou contate o suporte.' });
     }
 
   } catch (err) {
-    console.error('Erro ao criar cobrança da inscrição:', err);
+    console.error('Erro ao criar cobrança da invoice:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
 
 // =========================
-// Admin: Inscrições e autorizações
+// Admin: inscrições / invoices
 // =========================
 
 exports.listarInscricoesEvento = async (req, res) => {
   try {
-    const evento = await CompeticaoEvento.findByPk(req.params.eventoId);
-    if (!evento) return res.status(404).json({ msg: 'Evento não encontrado.' });
+    const { eventoId } = req.params;
+    const where = { evento_id: eventoId };
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.competicao_modalidade_id) where.competicao_modalidade_id = req.query.competicao_modalidade_id;
 
-    const inscricoes = await CompeticaoInscricao.findAll({
-      where: { evento_id: evento.id },
+    const data = await CompeticaoInscricao.findAll({
+      where,
       order: [['created_at', 'DESC']],
       include: [
-        { model: Atleta, as: 'atleta', attributes: ['id', 'nome_completo', 'cpf'] },
+        { model: Atleta, as: 'atleta' },
         { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-        { model: Filiacao, as: 'filiacao', include: [{ model: Modalidade, as: 'modalidade', attributes: ['id', 'nome'] }] },
-        { model: Pagamento, as: 'pagamentos' },
+        { model: CompeticaoInvoiceItem, as: 'invoiceItem', include: [{ model: CompeticaoInvoice, as: 'invoice' }] },
       ]
     });
 
-    res.json(inscricoes);
+    res.json(data);
   } catch (err) {
     console.error('Erro ao listar inscrições do evento:', err);
     res.status(500).send('Erro no servidor.');
   }
 };
 
+exports.atualizarInscricaoAdmin = async (req, res) => {
+  try {
+    const insc = await CompeticaoInscricao.findByPk(req.params.inscricaoId);
+    if (!insc) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
+
+    const allowed = ['status', 'motivo_bloqueio'];
+    const patch = {};
+    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
+
+    await insc.update(patch);
+    res.json(insc);
+  } catch (err) {
+    console.error('Erro ao atualizar inscrição (admin):', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+exports.listarInvoicesEvento = async (req, res) => {
+  try {
+    const { eventoId } = req.params;
+    const where = { evento_id: eventoId };
+    if (req.query.status) where.status = req.query.status;
+
+    const invoices = await CompeticaoInvoice.findAll({
+      where,
+      order: [['created_at', 'DESC']],
+      include: [
+        { model: Atleta, as: 'atleta' },
+        { model: CompeticaoInvoiceItem, as: 'itens' },
+        { model: Pagamento, as: 'pagamentos', include: [{ model: MetodoPagamento, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] },
+      ]
+    });
+
+    res.json(invoices);
+  } catch (err) {
+    console.error('Erro ao listar invoices do evento:', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+exports.atualizarInvoiceAdmin = async (req, res) => {
+  try {
+    const invoice = await CompeticaoInvoice.findByPk(req.params.invoiceId);
+    if (!invoice) return res.status(404).json({ msg: 'Invoice não encontrada.' });
+
+    const allowed = ['status'];
+    const patch = {};
+    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
+
+    await invoice.update(patch);
+    res.json(invoice);
+  } catch (err) {
+    console.error('Erro ao atualizar invoice (admin):', err);
+    res.status(500).send('Erro no servidor.');
+  }
+};
+
+// =========================
+// Autorizações (Admin) - mantém endpoints existentes
+// =========================
+
 exports.listarAutorizacoesEvento = async (req, res) => {
   try {
-    const autorizacoes = await CompeticaoAutorizacao.findAll({
-      where: { evento_id: req.params.eventoId },
+    const { eventoId } = req.params;
+    const data = await CompeticaoAutorizacao.findAll({
+      where: { evento_id: eventoId },
       order: [['requested_at', 'DESC']],
-      include: [{ model: Atleta, as: 'atleta', attributes: ['id', 'nome_completo', 'cpf'] }]
+      include: [{ model: Atleta, as: 'atleta' }]
     });
-    res.json(autorizacoes);
+    res.json(data);
   } catch (err) {
     console.error('Erro ao listar autorizações:', err);
     res.status(500).send('Erro no servidor.');
@@ -1105,37 +1019,16 @@ exports.listarAutorizacoesEvento = async (req, res) => {
 
 exports.revisarAutorizacao = async (req, res) => {
   try {
+    const { autorizacaoId } = req.params;
     const { aprovado, notes } = req.body || {};
-    if (aprovado === undefined) return res.status(400).json({ msg: 'Campo "aprovado" é obrigatório.' });
 
-    const auth = await CompeticaoAutorizacao.findByPk(req.params.autorizacaoId);
+    const auth = await CompeticaoAutorizacao.findByPk(autorizacaoId);
     if (!auth) return res.status(404).json({ msg: 'Autorização não encontrada.' });
 
-    const novoStatus = aprovado ? 'APROVADA' : 'NEGADA';
-    await auth.update({
-      status: novoStatus,
-      notes: notes ?? null,
-      approved_at: new Date(),
-    });
+    const status = aprovado ? 'APROVADO' : 'REPROVADO';
+    await auth.update({ status, reviewed_at: new Date(), notes: notes ?? null });
 
-    // Atualiza inscrições do atleta naquele evento (apenas as que aguardam autorização)
-    const inscricoes = await CompeticaoInscricao.findAll({
-      where: {
-        evento_id: auth.evento_id,
-        atleta_id: auth.atleta_id,
-        status: 'AGUARDANDO_AUTORIZACAO'
-      }
-    });
-
-    for (const insc of inscricoes) {
-      if (aprovado) {
-        await insc.update({ status: 'CONFIRMADA', motivo_bloqueio: null });
-      } else {
-        await insc.update({ status: 'BLOQUEADA', motivo_bloqueio: 'Autorização negada.' });
-      }
-    }
-
-    res.json({ autorizacao: auth, inscricoesAtualizadas: inscricoes.length });
+    res.json(auth);
   } catch (err) {
     console.error('Erro ao revisar autorização:', err);
     res.status(500).send('Erro no servidor.');

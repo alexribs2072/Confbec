@@ -5,25 +5,22 @@ import axios from 'axios';
 import {
   Box,
   Typography,
-  Chip,
   CircularProgress,
   Alert,
-  Divider,
+  Card,
+  CardContent,
   Button,
-  Paper,
+  Chip,
+  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormGroup,
+  FormControlLabel,
+  Checkbox,
   TextField,
-  MenuItem,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
 } from '@mui/material';
-
-import { useAuth } from '../context/AuthContext';
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -35,82 +32,103 @@ function fmtDate(d) {
   }
 }
 
+function money(v) {
+  const n = Number(v || 0);
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 export default function CompeticaoDetalhePage() {
   const { eventoId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
-
-  const isAtleta = user?.tipo === 'atleta';
 
   const [evento, setEvento] = useState(null);
   const [elig, setElig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedModalidade, setSelectedModalidade] = useState(null);
-  const [pesoKg, setPesoKg] = useState('');
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState([]); // ids
+  const [peso, setPeso] = useState('');
   const [categoria, setCategoria] = useState('COLORIDAS');
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
 
-  const modalidades = useMemo(() => {
-    return (elig?.modalidades || evento?.modalidades || []).slice();
-  }, [elig, evento]);
+  const eligibleList = useMemo(() => {
+    return (elig?.modalidades || []).filter(m => m.elegivel);
+  }, [elig]);
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const total = useMemo(() => {
+    const map = new Map((eligibleList || []).map(m => [String(m.competicao_modalidade_id), m]));
+    return selected.reduce((acc, id) => acc + Number(map.get(String(id))?.taxa_inscricao || 0), 0);
+  }, [selected, eligibleList]);
 
-        const resEvento = await axios.get(`/api/competicoes/eventos/${eventoId}`);
-        setEvento(resEvento.data);
+  const fetchAll = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (isAtleta) {
-          const resElig = await axios.get(`/api/competicoes/eventos/${eventoId}/elegibilidade`);
-          setElig(resElig.data);
-        } else {
-          setElig(null);
-        }
-      } catch (err) {
-        console.error('[CompeticaoDetalhePage] erro:', err);
-        setError(err.response?.data?.msg || 'Erro ao carregar detalhes do evento.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAll();
-  }, [eventoId, isAtleta]);
+      const [eRes, elRes] = await Promise.all([
+        axios.get(`/api/competicoes/eventos/${eventoId}`),
+        axios.get(`/api/competicoes/eventos/${eventoId}/elegibilidade`),
+      ]);
 
-  const openDialog = (m) => {
-    setSelectedModalidade(m);
-    setPesoKg('');
-    setCategoria('COLORIDAS');
-    setSaveError(null);
-    setDialogOpen(true);
+      setEvento(eRes.data);
+      setElig(elRes.data);
+    } catch (err) {
+      console.error('[CompeticaoDetalhePage] erro:', err);
+      setError(err.response?.data?.msg || 'Erro ao carregar o evento.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleInscrever = async () => {
-    if (!selectedModalidade) return;
+  useEffect(() => {
+    fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventoId]);
+
+  const abrirInscricao = () => {
+    setSelected([]);
+    setOpen(true);
+  };
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const s = String(id);
+      if (prev.map(String).includes(s)) return prev.filter(x => String(x) !== s);
+      return [...prev, id];
+    });
+  };
+
+  const inscrever = async () => {
     try {
       setSaving(true);
-      setSaveError(null);
+      setError(null);
+
+      if (selected.length === 0) {
+        setError('Selecione ao menos 1 submodalidade.');
+        return;
+      }
 
       const payload = {
-        competicao_modalidade_id: selectedModalidade.competicao_modalidade_id || selectedModalidade.id,
-        peso_kg: Number(pesoKg),
+        competicao_modalidade_ids: selected,
+        peso_kg: peso ? Number(peso) : undefined,
         categoria_combate: categoria,
       };
 
       const res = await axios.post(`/api/competicoes/eventos/${eventoId}/inscricoes`, payload);
-      setDialogOpen(false);
-      // Vai para minhas inscrições
-      navigate('/competicoes/minhas-inscricoes', { replace: true });
-      return res.data;
+      const invoiceId = res.data?.invoice?.id;
+      setOpen(false);
+
+      // Leva o atleta direto para "Minhas inscrições" (agora mostra invoices)
+      if (invoiceId) {
+        navigate('/competicoes/minhas-inscricoes');
+      } else {
+        navigate('/competicoes/minhas-inscricoes');
+      }
+
     } catch (err) {
       console.error('[CompeticaoDetalhePage] erro inscrição:', err);
-      setSaveError(err.response?.data?.msg || 'Erro ao criar inscrição.');
+      setError(err.response?.data?.msg || 'Erro ao criar inscrição.');
     } finally {
       setSaving(false);
     }
@@ -125,131 +143,130 @@ export default function CompeticaoDetalhePage() {
     );
   }
 
-  if (error) {
-    return <Alert severity="error">{error}</Alert>;
-  }
-
   if (!evento) {
-    return <Alert severity="warning">Evento não encontrado.</Alert>;
+    return <Alert severity="error">Evento não encontrado.</Alert>;
   }
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-        <Box>
-          <Typography variant="h4" fontWeight={800}>{evento.nome}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
-            <Chip label={evento.escopo} variant="outlined" />
-            <Chip label={evento.status} color={evento.status === 'INSCRICOES_ABERTAS' ? 'success' : 'default'} variant="outlined" />
-            <Chip label={`Data: ${fmtDate(evento.data_evento)}`} variant="outlined" />
+      <Typography variant="h4" fontWeight={800} sx={{ mb: 1 }}>{evento.nome}</Typography>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Card variant="outlined" sx={{ mb: 2 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+            <Chip size="small" label={evento.status} variant="outlined" />
+            {evento.modalidadeMae?.nome && <Chip size="small" label={`Modalidade: ${evento.modalidadeMae.nome}`} variant="outlined" />}
           </Box>
-        </Box>
-        <Button variant="outlined" onClick={() => navigate('/competicoes')}>Voltar</Button>
-      </Box>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        {evento.local && (
-          <Typography variant="body1"><strong>Local:</strong> {evento.local}</Typography>
-        )}
-        {evento.descricao && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
-            {evento.descricao}
+          {evento.descricao && (
+            <Typography variant="body1" sx={{ mb: 1 }}>{evento.descricao}</Typography>
+          )}
+
+          <Typography variant="body2" color="text.secondary">
+            Data: <strong>{fmtDate(evento.data_evento)}</strong>
+            {evento.data_fim ? <> • Fim: <strong>{fmtDate(evento.data_fim)}</strong></> : null}
           </Typography>
-        )}
+          {evento.local && (
+            <Typography variant="body2" color="text.secondary">
+              Local: <strong>{evento.local}</strong>
+            </Typography>
+          )}
 
-        <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 1.5 }} />
 
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
-          Modalidades do evento
-        </Typography>
+          <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>Submodalidades disponíveis</Typography>
 
-        {modalidades.length === 0 ? (
-          <Alert severity="info">Nenhuma modalidade vinculada a este evento.</Alert>
-        ) : (
-          <List dense>
-            {modalidades.map((m) => {
-              const eligible = m.elegivel ?? true;
-              const motivo = m.motivo || null;
-              const id = m.competicao_modalidade_id || m.id;
-              return (
-                <ListItem key={id} divider>
-                  <ListItemText
-                    primary={m.nome}
-                    secondary={
-                      motivo
-                        ? motivo
-                        : (m.tipo ? `Tipo: ${m.tipo}` : null)
-                    }
+          {(elig?.modalidades || []).length === 0 ? (
+            <Alert severity="info">Nenhuma submodalidade configurada para este evento.</Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {(elig?.modalidades || []).map((m) => (
+                <Box key={m.competicao_modalidade_id} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Box>
+                    <Typography fontWeight={700}>{m.nome}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Taxa: <strong>{money(m.taxa_inscricao)}</strong>
+                      {m.motivo ? <> • <em>{m.motivo}</em></> : null}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    label={m.elegivel ? 'Elegível' : 'Inelegível'}
+                    color={m.elegivel ? 'success' : 'default'}
+                    variant="outlined"
                   />
-                  <ListItemSecondaryAction>
-                    {isAtleta ? (
-                      <Button
-                        size="small"
-                        variant="contained"
-                        disabled={!eligible || evento.status !== 'INSCRICOES_ABERTAS'}
-                        onClick={() => openDialog(m)}
-                      >
-                        Inscrever
-                      </Button>
-                    ) : (
-                      <Chip size="small" label={eligible ? 'Disponível' : 'Indisponível'} variant="outlined" />
-                    )}
-                  </ListItemSecondaryAction>
-                </ListItem>
-              );
-            })}
-          </List>
-        )}
+                </Box>
+              ))}
+            </Box>
+          )}
 
-        {!user && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            Faça login como atleta para verificar elegibilidade e se inscrever.
-          </Alert>
-        )}
-      </Paper>
+          <Divider sx={{ my: 1.5 }} />
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Inscrição</DialogTitle>
-        <DialogContent>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            {selectedModalidade?.nome}
-          </Typography>
-
-          <TextField
-            label="Peso (kg)"
-            type="number"
-            value={pesoKg}
-            onChange={(e) => setPesoKg(e.target.value)}
-            fullWidth
-            sx={{ mt: 1 }}
-            inputProps={{ step: '0.1', min: '0' }}
-          />
-
-          <TextField
-            select
-            label="Categoria"
-            value={categoria}
-            onChange={(e) => setCategoria(e.target.value)}
-            fullWidth
-            sx={{ mt: 2 }}
-          >
-            <MenuItem value="COLORIDAS">Coloridas</MenuItem>
-            <MenuItem value="AVANCADA">Avançada</MenuItem>
-          </TextField>
-
-          {saveError && <Alert severity="error" sx={{ mt: 2 }}>{saveError}</Alert>}
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            As divisões (peso/idade) são calculadas automaticamente e serão ajustadas quando o Regulamento Geral for carregado.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)} disabled={saving}>Cancelar</Button>
           <Button
             variant="contained"
-            onClick={handleInscrever}
-            disabled={saving || !pesoKg || Number(pesoKg) <= 0}
+            onClick={abrirInscricao}
+            disabled={evento.status !== 'INSCRICOES_ABERTAS' || eligibleList.length === 0}
+            fullWidth
           >
-            {saving ? 'Salvando...' : 'Confirmar'}
+            Inscrever (selecionar submodalidades)
+          </Button>
+
+          {evento.status !== 'INSCRICOES_ABERTAS' && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Inscrições não estão abertas para este evento.
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onClose={() => (!saving ? setOpen(false) : null)} fullWidth maxWidth="sm">
+        <DialogTitle>Inscrição</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Selecione uma ou mais submodalidades. O sistema irá gerar 1 invoice com itens e cobrar o total.
+          </Typography>
+
+          <FormGroup sx={{ mb: 2 }}>
+            {eligibleList.map((m) => (
+              <FormControlLabel
+                key={m.competicao_modalidade_id}
+                control={<Checkbox checked={selected.map(String).includes(String(m.competicao_modalidade_id))} onChange={() => toggle(m.competicao_modalidade_id)} />}
+                label={`${m.nome} — ${money(m.taxa_inscricao)}`}
+              />
+            ))}
+          </FormGroup>
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              label="Peso (kg)"
+              value={peso}
+              onChange={(e) => setPeso(e.target.value)}
+              type="number"
+              inputProps={{ step: '0.1' }}
+              fullWidth
+            />
+            <TextField
+              label="Categoria (Point Fight)"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              select
+              SelectProps={{ native: true }}
+              fullWidth
+            >
+              <option value="COLORIDAS">Coloridas</option>
+              <option value="AVANCADA">Avançada</option>
+            </TextField>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+          <Typography fontWeight={800}>Total: {money(total)}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button>
+          <Button variant="contained" onClick={inscrever} disabled={saving || selected.length === 0}>
+            {saving ? 'Criando...' : 'Confirmar e gerar invoice'}
           </Button>
         </DialogActions>
       </Dialog>
