@@ -14,6 +14,12 @@ const CompeticaoEventoModalidade = sequelize.define('CompeticaoEventoModalidade'
     primaryKey: true,
     allowNull: false,
   },
+  // Taxa por modalidade (cobrança por modalidade inscrita)
+  taxa_inscricao: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
 }, {
   tableName: 'competicao_evento_modalidades',
   timestamps: true,

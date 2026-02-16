@@ -67,6 +67,7 @@ export default function ManageCompeticoesPage() {
   // Modalidades (para vínculo)
   const [modalidadesDisponiveis, setModalidadesDisponiveis] = useState([]);
   const [selectedModalidadeIds, setSelectedModalidadeIds] = useState([]);
+  const [taxaPorModalidade, setTaxaPorModalidade] = useState({});
 
   const filteredEventos = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -130,6 +131,7 @@ export default function ManageCompeticoesPage() {
     setOpenDialog(false);
     setEditingId(null);
     setSelectedModalidadeIds([]);
+    setTaxaPorModalidade({});
     setModalidadesDisponiveis([]);
     setFormData({
       nome: "",
@@ -157,6 +159,7 @@ export default function ManageCompeticoesPage() {
       taxa_inscricao: 0,
     });
     setSelectedModalidadeIds([]);
+    setTaxaPorModalidade({});
     await fetchModalidadesDisponiveis();
     setOpenDialog(true);
   }
@@ -187,6 +190,13 @@ export default function ManageCompeticoesPage() {
 
     const vinculadas = (full.modalidades || []).map((m) => m.id);
     setSelectedModalidadeIds(vinculadas);
+
+    const taxaMap = {};
+    (full.modalidades || []).forEach((m) => {
+      const tx = m?.CompeticaoEventoModalidade?.taxa_inscricao;
+      taxaMap[m.id] = Number(tx ?? full.taxa_inscricao ?? 0);
+    });
+    setTaxaPorModalidade(taxaMap);
 
     await fetchModalidadesDisponiveis();
     setOpenDialog(true);
@@ -248,8 +258,13 @@ export default function ManageCompeticoesPage() {
       }
 
       // vínculo de modalidades (somente se tiver id do evento)
+      const modalidadesPayload = (selectedModalidadeIds || []).map((id) => ({
+        id,
+        taxa_inscricao: Number(taxaPorModalidade?.[id] ?? formData.taxa_inscricao ?? 0),
+      }));
+
       await axios.put(`/api/competicoes/eventos/${eventoId}/modalidades`, {
-        competicao_modalidade_ids: selectedModalidadeIds,
+        modalidades: modalidadesPayload,
       });
 
       setSuccess(editingId ? "Competição atualizada com sucesso." : "Competição criada com sucesso.");
@@ -466,7 +481,20 @@ export default function ManageCompeticoesPage() {
                 multiple
                 value={selectedModalidadeIds}
                 label="Selecione as modalidades"
-                onChange={(e) => setSelectedModalidadeIds(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedModalidadeIds(next);
+                  setTaxaPorModalidade((prev) => {
+                    const copy = { ...(prev || {}) };
+                    (next || []).forEach((id) => {
+                      if (copy[id] === undefined) copy[id] = Number(formData.taxa_inscricao ?? 0);
+                    });
+                    Object.keys(copy).forEach((k) => {
+                      if (!(next || []).some((v) => String(v) === String(k))) delete copy[k];
+                    });
+                    return copy;
+                  });
+                }}
                 renderValue={(selected) => (
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                     {selected.map((id) => {
@@ -484,6 +512,46 @@ export default function ManageCompeticoesPage() {
                 ))}
               </Select>
             </FormControl>
+
+            {selectedModalidadeIds.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><b>Modalidade</b></TableCell>
+                        <TableCell width={180}><b>Taxa (R$)</b></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedModalidadeIds.map((id) => {
+                        const m = modalidadesDisponiveis.find((x) => String(x.id) === String(id));
+                        return (
+                          <TableRow key={id}>
+                            <TableCell>{m?.nome || `ID ${id}`}</TableCell>
+                            <TableCell>
+                              <TextField
+                                type="number"
+                                size="small"
+                                value={taxaPorModalidade?.[id] ?? 0}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value);
+                                  setTaxaPorModalidade((prev) => ({ ...(prev || {}), [id]: v }));
+                                }}
+                                inputProps={{ min: 0, step: '0.01' }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  O atleta paga por modalidade inscrita. Se a taxa for 0, a inscrição pode ser confirmada sem cobrança.
+                </Alert>
+              </Box>
+            )}
 
             <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>
               Dica: você pode selecionar várias modalidades. Ao salvar, o sistema substitui os vínculos do evento por esta lista.

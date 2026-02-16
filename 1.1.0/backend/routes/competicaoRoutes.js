@@ -20,6 +20,7 @@ router.put('/modalidades/:modalidadeId', proteger, checkAdmin, competicaoControl
 // ===== Elegibilidade / inscrições =====
 router.get('/eventos/:eventoId/elegibilidade', proteger, competicaoController.elegibilidadeEvento);
 router.post('/eventos/:eventoId/inscricoes', proteger, competicaoController.criarInscricao);
+router.post('/eventos/:eventoId/inscricoes/lote', proteger, competicaoController.criarInscricoesLote);
 router.get('/inscricoes/me', proteger, competicaoController.minhasInscricoes);
 
 // Pagamento da inscrição

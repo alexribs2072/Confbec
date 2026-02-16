@@ -35,6 +35,16 @@ function fmtDate(d) {
   }
 }
 
+function fmtMoney(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  try {
+    return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  } catch {
+    return `R$ ${n.toFixed(2)}`;
+  }
+}
+
 export default function CompeticaoDetalhePage() {
   const { eventoId } = useParams();
   const navigate = useNavigate();
@@ -171,6 +181,7 @@ export default function CompeticaoDetalhePage() {
               const eligible = m.elegivel ?? true;
               const motivo = m.motivo || null;
               const id = m.competicao_modalidade_id || m.id;
+              const taxa = m.taxa_inscricao ?? m?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento?.taxa_inscricao ?? 0;
               return (
                 <ListItem key={id} divider>
                   <ListItemText
@@ -178,7 +189,12 @@ export default function CompeticaoDetalhePage() {
                     secondary={
                       motivo
                         ? motivo
-                        : (m.tipo ? `Tipo: ${m.tipo}` : null)
+                        : (
+                            [
+                              m.tipo ? `Tipo: ${m.tipo}` : null,
+                              Number(taxa) > 0 ? `Taxa: ${fmtMoney(taxa)} (por modalidade)` : 'Sem taxa',
+                            ].filter(Boolean).join(' • ')
+                          )
                     }
                   />
                   <ListItemSecondaryAction>
