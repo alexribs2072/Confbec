@@ -10,6 +10,11 @@ const CompeticaoEvento = sequelize.define('CompeticaoEvento', {
     autoIncrement: true,
     primaryKey: true,
   },
+  // Modalidade mãe do evento (ex: Kickboxing). Usada para validar filiação do atleta.
+  modalidade_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
   nome: {
     type: DataTypes.STRING(160),
     allowNull: false,

@@ -188,6 +188,16 @@ db.Pagamento.belongsTo(db.MetodoPagamento, {
 
 // 10) Módulo de Competições
 
+// Evento -> Modalidade (mãe)
+db.Modalidade.hasMany(db.CompeticaoEvento, {
+    foreignKey: 'modalidade_id',
+    as: 'eventosCompeticao'
+});
+db.CompeticaoEvento.belongsTo(db.Modalidade, {
+    foreignKey: 'modalidade_id',
+    as: 'modalidadeMae'
+});
+
 // Evento <-> Modalidades (N:N)
 db.CompeticaoEvento.belongsToMany(db.CompeticaoModalidade, {
     through: db.CompeticaoEventoModalidade,
@@ -202,14 +212,14 @@ db.CompeticaoModalidade.belongsToMany(db.CompeticaoEvento, {
     as: 'eventos'
 });
 
-// CompeticaoModalidade (competição) -> Modalidade (filiacao) (opcional)
+// Submodalidades (competição) -> Modalidade (mãe)
 db.Modalidade.hasMany(db.CompeticaoModalidade, {
-    foreignKey: 'filiacao_modalidade_id',
-    as: 'modalidadesCompeticao'
+    foreignKey: 'modalidade_id',
+    as: 'subModalidades'
 });
 db.CompeticaoModalidade.belongsTo(db.Modalidade, {
-    foreignKey: 'filiacao_modalidade_id',
-    as: 'modalidadeFiliacao'
+    foreignKey: 'modalidade_id',
+    as: 'modalidadeMae'
 });
 
 // Inscrição pertence a evento/atleta/filiação/modalidade de competição

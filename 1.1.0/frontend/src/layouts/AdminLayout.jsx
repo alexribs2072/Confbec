@@ -17,6 +17,8 @@ import Avatar from '@mui/material/Avatar'; // Importado Avatar
 // Ícones
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import CategoryIcon from '@mui/icons-material/Category';
+import SportsMartialArtsIcon from '@mui/icons-material/SportsMartialArts';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import StarIcon from '@mui/icons-material/Star';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import StoreIcon from '@mui/icons-material/Store';
@@ -129,6 +131,20 @@ function AdminLayout() {
             <ListItemButton component={RouterLink} to="/admin/modalidades" selected={isActive('/admin/modalidades')} sx={menuButtonStyle('/admin/modalidades')}>
               <ListItemIcon sx={{ color: isActive('/admin/modalidades') ? 'white' : 'inherit' }}> <CategoryIcon /> </ListItemIcon>
               <ListItemText primary="Modalidades" />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem disablePadding>
+            <ListItemButton component={RouterLink} to="/admin/submodalidades" selected={isActive('/admin/submodalidades')} sx={menuButtonStyle('/admin/submodalidades')}>
+              <ListItemIcon sx={{ color: isActive('/admin/submodalidades') ? 'white' : 'inherit' }}> <SportsMartialArtsIcon /> </ListItemIcon>
+              <ListItemText primary="Submodalidades" />
+            </ListItemButton>
+          </ListItem>
+
+          <ListItem disablePadding>
+            <ListItemButton component={RouterLink} to="/admin/competicoes" selected={isActive('/admin/competicoes')} sx={menuButtonStyle('/admin/competicoes')}>
+              <ListItemIcon sx={{ color: isActive('/admin/competicoes') ? 'white' : 'inherit' }}> <EmojiEventsIcon /> </ListItemIcon>
+              <ListItemText primary="Competições" />
             </ListItemButton>
           </ListItem>
           

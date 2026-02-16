@@ -10,11 +10,18 @@ router.get('/eventos/:eventoId', protegerOpcional, competicaoController.getEvent
 
 router.post('/eventos', proteger, checkAdmin, competicaoController.criarEvento);
 router.put('/eventos/:eventoId', proteger, checkAdmin, competicaoController.atualizarEvento);
+router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.cancelarEvento);
 router.put('/eventos/:eventoId/modalidades', proteger, checkAdmin, competicaoController.atualizarModalidadesDoEvento);
 
 // ===== Modalidades de competição =====
 router.get('/modalidades', proteger, checkAdmin, competicaoController.listarModalidades);
 router.put('/modalidades/:modalidadeId', proteger, checkAdmin, competicaoController.atualizarModalidade);
+
+// ===== Submodalidades (CRUD) =====
+router.get('/submodalidades', proteger, checkAdmin, competicaoController.listarSubmodalidades);
+router.post('/submodalidades', proteger, checkAdmin, competicaoController.criarSubmodalidade);
+router.put('/submodalidades/:submodalidadeId', proteger, checkAdmin, competicaoController.atualizarSubmodalidade);
+router.delete('/submodalidades/:submodalidadeId', proteger, checkAdmin, competicaoController.excluirSubmodalidade);
 
 // ===== Elegibilidade / inscrições =====
 router.get('/eventos/:eventoId/elegibilidade', proteger, competicaoController.elegibilidadeEvento);

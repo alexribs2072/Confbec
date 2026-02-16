@@ -7,7 +7,8 @@ import {
   Container, Box, Typography, TextField, Button, Grid,
   CircularProgress, Alert, Divider, Avatar, IconButton,
   Paper, Tooltip, Zoom, Skeleton, InputAdornment, Snackbar,
-  Badge
+  Badge,
+  MenuItem
 } from '@mui/material';
 
 // --- Ícones ---
@@ -48,7 +49,7 @@ function PerfilAtletaPage() {
   
   // --- Estados ---
   const [formData, setFormData] = useState({
-    nome_completo: '', data_nascimento: '', cpf: '', rg: '',
+    nome_completo: '', data_nascimento: '', sexo: '', cpf: '', rg: '',
     logradouro: '', cep: '', bairro: '', cidade: '', estado: '',
     telefone_contato: '', foto_url: ''
   });
@@ -308,6 +309,20 @@ function PerfilAtletaPage() {
                       onChange={handleChange} 
                       InputLabelProps={{ shrink: true }} 
                     />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      select
+                      name="sexo"
+                      label="Sexo"
+                      fullWidth
+                      required
+                      value={formData.sexo || ''}
+                      onChange={handleChange}
+                    >
+                      <MenuItem value="M">Masculino</MenuItem>
+                      <MenuItem value="F">Feminino</MenuItem>
+                    </TextField>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField 
