@@ -3,13 +3,12 @@ import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import './index.css';
 
-// MUI e Localização
+// MUI e Contextos
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ptBR } from 'date-fns/locale';
-
 import theme from './theme';
 import { AuthProvider } from './context/AuthContext.jsx';
 
@@ -18,14 +17,16 @@ import ProtectedRoute from './components/ProtectedRoute.jsx';
 import ProfessorAdminRoute from './components/ProfessorAdminRoute.jsx';
 import AdminRoute from './components/AdminRoute.jsx';
 
-// Layouts e Páginas Gerais
+// Layouts
 import App from './App.jsx';
-import AdminLayout from './layouts/AdminLayout.jsx';
+import DashboardLayout from './layouts/DashboardLayout.jsx';
+
+// Páginas Públicas
 import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 
-// Páginas de Atleta
+// Páginas de Usuário/Atleta
 import PerfilAtletaPage from './pages/PerfilAtletaPage.jsx';
 import FiliacaoPage from './pages/FiliacaoPage.jsx';
 import MinhasFiliacoesPage from './pages/MinhasFiliacoesPage.jsx';
@@ -38,11 +39,11 @@ import MinhasInscricoesCompeticaoPage from './pages/MinhasInscricoesCompeticaoPa
 import CompeticaoInscricaoDetalhePage from './pages/CompeticaoInscricaoDetalhePage.jsx';
 import CompeticoesCarrinhoPage from './pages/CompeticoesCarrinhoPage.jsx';
 
-// Páginas de Gestão (Professor/Admin)
+// Páginas de Gestão
 import AprovacoesPage from './pages/AprovacoesPage.jsx';
 import AprovacaoDetalhePage from './pages/AprovacaoDetalhePage.jsx';
 
-// Admin
+// Páginas Admin
 import ManageAcademiasPage from './pages/admin/ManageAcademiasPage.jsx';
 import ManageFederacoesPage from './pages/admin/ManageFederacoesPage.jsx';
 import ManageModalidadesPage from './pages/admin/ManageModalidadesPage.jsx';
@@ -54,52 +55,56 @@ import ManageCompeticoesPage from './pages/admin/ManageCompeticoesPage.jsx';
 import ManageSubmodalidadesPage from './pages/admin/ManageSubmodalidadesPage.jsx';
 
 const router = createBrowserRouter([
+  // 1. ÁREA PÚBLICA
   {
     path: '/',
-    element: <App />,
+    element: <App />, 
     children: [
       { index: true, element: <HomePage /> },
       { path: 'login', element: <LoginPage /> },
       { path: 'register', element: <RegisterPage /> },
-
-      // Rotas Protegidas Atleta
-      { path: 'perfil-atleta', element: <ProtectedRoute><PerfilAtletaPage /></ProtectedRoute> },
-      { path: 'filiacao', element: <ProtectedRoute><FiliacaoPage /></ProtectedRoute> },
-      { path: 'minhas-filiacoes', element: <ProtectedRoute><MinhasFiliacoesPage /></ProtectedRoute> },
-      { path: 'pagamento/:pagamentoId', element: <ProtectedRoute><PagamentoPage /></ProtectedRoute> },
-
-      // Competições (público: lista e detalhes)
       { path: 'competicoes', element: <CompeticoesPage /> },
       { path: 'competicoes/:eventoId', element: <CompeticaoDetalhePage /> },
-      { path: 'competicoes/carrinho', element: <ProtectedRoute><CompeticoesCarrinhoPage /></ProtectedRoute> },
-      // Minhas inscrições (atleta logado)
-      { path: 'competicoes/minhas-inscricoes', element: <ProtectedRoute><MinhasInscricoesCompeticaoPage /></ProtectedRoute> },
-      { path: 'competicoes/inscricoes/:inscricaoId', element: <ProtectedRoute><CompeticaoInscricaoDetalhePage /></ProtectedRoute> },
-
-      // Central de Aprovações (Professor/Admin)
-      { path: 'admin/filiacoes-pendentes', element: <ProfessorAdminRoute><AprovacoesPage /></ProfessorAdminRoute> },
-
-      // ✅ DETALHE TAMBÉM PARA PROFESSOR/TREINADOR/ADMIN
-      { path: 'admin/aprovacao/:filiacaoId', element: <ProfessorAdminRoute><AprovacaoDetalhePage /></ProfessorAdminRoute> },
     ],
   },
 
+  // 2. ÁREA LOGADA
   {
-    path: '/admin',
-    element: <AdminRoute><AdminLayout /></AdminRoute>,
+    element: <ProtectedRoute><DashboardLayout /></ProtectedRoute>,
     children: [
-      { index: true, element: <AdminDashboardPage /> },
-      { path: 'modalidades', element: <ManageModalidadesPage /> },
-      { path: 'submodalidades', element: <ManageSubmodalidadesPage /> },
-      { path: 'competicoes', element: <ManageCompeticoesPage /> },
-      { path: 'graduacoes', element: <ManageGraduacoesPage /> },
-      { path: 'federacoes', element: <ManageFederacoesPage /> },
-      { path: 'academias', element: <ManageAcademiasPage /> },
-      { path: 'noticias', element: <ManageNoticiasPage /> },
-      { path: 'pagamentos', element: <ManagePagamentosPage /> },
+      // --- PERFIL GERAL (CORREÇÃO AQUI) ---
+      // Esta linha conserta o erro. Redirecionamos o /perfil-usuario para a página de perfil existente
+      { path: 'perfil-usuario', element: <PerfilAtletaPage /> }, 
+      { path: 'perfil-atleta', element: <PerfilAtletaPage /> },
 
-      // ❌ REMOVIDO: isso bloqueia professor por estar sob AdminRoute
-      // { path: 'aprovacao/:filiacaoId', element: <AprovacaoDetalhePage /> },
+      // --- ATLETA ---
+      { path: 'filiacao', element: <FiliacaoPage /> },
+      { path: 'minhas-filiacoes', element: <MinhasFiliacoesPage /> },
+      { path: 'competicoes/minhas-inscricoes', element: <MinhasInscricoesCompeticaoPage /> },
+      { path: 'competicoes/carrinho', element: <CompeticoesCarrinhoPage /> },
+      { path: 'competicoes/inscricoes/:inscricaoId', element: <CompeticaoInscricaoDetalhePage /> },
+      { path: 'pagamento/:pagamentoId', element: <PagamentoPage /> },
+
+      // --- GESTÃO (Professor / Admin) ---
+      { 
+        path: 'admin/filiacoes-pendentes', 
+        element: <ProfessorAdminRoute><AprovacoesPage /></ProfessorAdminRoute> 
+      },
+      { 
+        path: 'admin/aprovacao/:filiacaoId', 
+        element: <ProfessorAdminRoute><AprovacaoDetalhePage /></ProfessorAdminRoute> 
+      },
+
+      // --- ADMINISTRAÇÃO ---
+      { path: 'admin', element: <AdminRoute><AdminDashboardPage /></AdminRoute> },
+      { path: 'admin/modalidades', element: <AdminRoute><ManageModalidadesPage /></AdminRoute> },
+      { path: 'admin/submodalidades', element: <AdminRoute><ManageSubmodalidadesPage /></AdminRoute> },
+      { path: 'admin/competicoes', element: <AdminRoute><ManageCompeticoesPage /></AdminRoute> },
+      { path: 'admin/graduacoes', element: <AdminRoute><ManageGraduacoesPage /></AdminRoute> },
+      { path: 'admin/federacoes', element: <AdminRoute><ManageFederacoesPage /></AdminRoute> },
+      { path: 'admin/academias', element: <AdminRoute><ManageAcademiasPage /></AdminRoute> },
+      { path: 'admin/noticias', element: <AdminRoute><ManageNoticiasPage /></AdminRoute> },
+      { path: 'admin/pagamentos', element: <AdminRoute><ManagePagamentosPage /></AdminRoute> },
     ]
   }
 ]);

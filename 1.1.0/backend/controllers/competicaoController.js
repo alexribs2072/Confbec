@@ -16,12 +16,14 @@ const {
 } = db;
 
 const { Op } = db.Sequelize;
+
+// Importação das regras - se alguma função faltar, o destructuring retorna undefined
 const {
   calcAgeYears,
   grupoEtarioFromAge,
   divisaoIdadeFromGrupo,
   modalidadePermitidaPorGrupo,
-  pesoDivisoesByGrupo,
+  pesoDivisoesByGrupo, // <--- O erro aponta que isso aqui não é uma função válida
   validatePesoMinimo,
   divisaoPesoFromGrupo,
   divisaoPesoLabel,
@@ -284,92 +286,158 @@ exports.atualizarModalidade = async (req, res) => {
 // =========================
 
 exports.elegibilidadeEvento = async (req, res) => {
+  console.log(`>>> [Elegibilidade] Iniciando verificação para Evento ID: ${req.params.eventoId}`);
+  
   try {
     if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
     if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
 
+    // 1. Busca Evento
     const evento = await getEventoOr404(req.params.eventoId, res);
-    if (!evento) return;
+    if (!evento) return; // Resposta já enviada no helper
 
+    // 2. Busca Atleta
     const atletaId = req.usuario.id;
     const atleta = await getAtletaWithUsuario(atletaId);
-    if (!atleta) return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de verificar elegibilidade.' });
+    
+    if (!atleta) {
+      console.warn(`>>> [Elegibilidade] Atleta não encontrado para Usuario ID: ${atletaId}`);
+      return res.status(400).json({ msg: 'Crie seu perfil de atleta antes de verificar elegibilidade.' });
+    }
 
-    // Idade na data do evento (regulamento cita a data da primeira luta; usamos data_evento como referência padrão)
-    const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
-    const grupoEtario = grupoEtarioFromAge(idadeAnos);
-
+    // 3. Validação de Dados Básicos (Evita Crash)
+    if (!atleta.data_nascimento) {
+      return res.status(400).json({ msg: 'Data de nascimento não cadastrada no perfil.' });
+    }
+    
+    // Tratamento para campo SEXO
+    if (atleta.sexo === undefined) {
+        console.error(">>> [ERRO CRÍTICO] O campo 'sexo' veio undefined do banco. Verifique se a coluna existe na tabela 'atletas'.");
+        return res.status(500).json({ msg: 'Erro interno: Campo de sexo não encontrado no sistema. Contate o suporte.' });
+    }
     if (!atleta.sexo) {
       return res.status(400).json({ msg: 'Atualize seu perfil: informe o sexo (M/F) para competir.' });
     }
+
+    // 4. Cálculos de Idade e Categoria
+    let idadeAnos, grupoEtario;
+    try {
+        idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
+        grupoEtario = grupoEtarioFromAge(idadeAnos);
+        console.log(`>>> [Elegibilidade] Atleta: ${atleta.nome_completo}, Idade: ${idadeAnos}, Grupo: ${grupoEtario}, Sexo: ${atleta.sexo}`);
+    } catch (calcErr) {
+        console.error(">>> [Elegibilidade] Erro ao calcular idade/grupo:", calcErr);
+        return res.status(400).json({ msg: 'Erro ao calcular sua categoria de idade.' });
+    }
+
     if (!grupoEtario) {
       return res.status(400).json({ msg: 'Idade mínima para competir na categoria Kadete é 5 anos completos.' });
     }
 
-    const pesoTabela = pesoDivisoesByGrupo(grupoEtario);
+    // --- CORREÇÃO DO ERRO 500 AQUI ---
+    let pesoTabela = null;
+    try {
+        if (typeof pesoDivisoesByGrupo === 'function') {
+            pesoTabela = pesoDivisoesByGrupo(grupoEtario);
+        } else {
+            console.warn(">>> [AVISO IMPORTANTE] pesoDivisoesByGrupo não é uma função válida. Verifique ../services/competicaoRules.js");
+            // Não quebra a requisição, apenas segue sem tabela de peso
+        }
+    } catch (errPeso) {
+        console.error(">>> [ERRO] Falha ao executar pesoDivisoesByGrupo:", errPeso);
+    }
+    // ---------------------------------
 
+    // 5. Loop de Modalidades (Blindado)
     const result = [];
-    for (const m of (evento.modalidades || [])) {
-      const requiredModalidadeId = m.filiacao_modalidade_id;
+    const modalidadesEvento = evento.modalidades || [];
 
-      // taxa por modalidade (fallback: taxa do evento)
-      const taxaModalidade = Number(m?.CompeticaoEventoModalidade?.taxa_inscricao ?? evento.taxa_inscricao ?? 0);
+    for (const m of modalidadesEvento) {
+      try {
+          const requiredModalidadeId = m.filiacao_modalidade_id;
+          
+          // Taxa com fallback seguro
+          const taxaEvento = Number(evento.taxa_inscricao || 0);
+          const taxaVinculo = m.CompeticaoEventoModalidade ? Number(m.CompeticaoEventoModalidade.taxa_inscricao) : null;
+          const taxaModalidade = taxaVinculo !== null && !isNaN(taxaVinculo) ? taxaVinculo : taxaEvento;
 
-      const fightConfig = fightConfigByModalidadeCode(m.code, idadeAnos);
+          // Configuração de Luta (Proteção contra código nulo)
+          const modalidadeCode = m.code || 'UNKNOWN';
+          let fightConfig = null;
+          try {
+             fightConfig = fightConfigByModalidadeCode(modalidadeCode, idadeAnos);
+          } catch (fcErr) {
+             console.warn(`>>> Erro ao gerar fightConfig para ${modalidadeCode}:`, fcErr.message);
+          }
 
-      if (!modalidadePermitidaPorGrupo(grupoEtario, m.code)) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`,
-          fight_config: fightConfig,
-        });
-        continue;
+          // Checa permissão da categoria
+          if (!modalidadePermitidaPorGrupo(grupoEtario, modalidadeCode)) {
+            result.push({
+              competicao_modalidade_id: m.id,
+              code: modalidadeCode,
+              nome: m.nome,
+              tipo: m.tipo,
+              taxa_inscricao: taxaModalidade,
+              elegivel: false,
+              motivo: `Modalidade não permitida para sua categoria (${grupoEtario}) conforme regulamento.`,
+              fight_config: fightConfig,
+            });
+            continue;
+          }
+
+          // Checa vínculo com filiação
+          if (!requiredModalidadeId) {
+            result.push({
+              competicao_modalidade_id: m.id,
+              code: modalidadeCode,
+              nome: m.nome,
+              tipo: m.tipo,
+              taxa_inscricao: taxaModalidade,
+              elegivel: false,
+              motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).',
+              fight_config: fightConfig,
+            });
+            continue;
+          }
+
+          // Busca filiação ativa
+          const filiacao = await findFiliacaoAtiva(atletaId, requiredModalidadeId);
+          if (!filiacao) {
+            result.push({
+              competicao_modalidade_id: m.id,
+              code: modalidadeCode,
+              nome: m.nome,
+              tipo: m.tipo,
+              taxa_inscricao: taxaModalidade,
+              elegivel: false,
+              motivo: 'Você não possui filiação ATIVA na modalidade exigida.',
+              fight_config: fightConfig,
+            });
+            continue;
+          }
+
+          // Sucesso
+          result.push({
+            competicao_modalidade_id: m.id,
+            code: modalidadeCode,
+            nome: m.nome,
+            tipo: m.tipo,
+            taxa_inscricao: taxaModalidade,
+            elegivel: true,
+            filiacao_id: filiacao.id,
+            fight_config: fightConfig,
+          });
+
+      } catch (loopErr) {
+          console.error(`>>> [Elegibilidade] Erro ao processar modalidade ID ${m.id}:`, loopErr);
+          // Não quebra o loop, apenas pula a modalidade com erro
+          result.push({
+              competicao_modalidade_id: m.id,
+              nome: m.nome,
+              elegivel: false,
+              motivo: 'Erro interno ao processar regras desta modalidade.'
+          });
       }
-
-      if (!requiredModalidadeId) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: 'Modalidade ainda não vinculada a uma modalidade de filiação (configuração admin).',
-          fight_config: fightConfig,
-        });
-        continue;
-      }
-
-      const filiacao = await findFiliacaoAtiva(atletaId, requiredModalidadeId);
-      if (!filiacao) {
-        result.push({
-          competicao_modalidade_id: m.id,
-          code: m.code,
-          nome: m.nome,
-          tipo: m.tipo,
-          taxa_inscricao: taxaModalidade,
-          elegivel: false,
-          motivo: 'Você não possui filiação ATIVA na modalidade exigida.',
-          fight_config: fightConfig,
-        });
-        continue;
-      }
-
-      result.push({
-        competicao_modalidade_id: m.id,
-        code: m.code,
-        nome: m.nome,
-        tipo: m.tipo,
-        taxa_inscricao: taxaModalidade,
-        elegivel: true,
-        filiacao_id: filiacao.id,
-        fight_config: fightConfig,
-      });
     }
 
     res.json({
@@ -381,9 +449,13 @@ exports.elegibilidadeEvento = async (req, res) => {
       peso_acima_de: pesoTabela?.acimaDe || null,
       modalidades: result,
     });
+
   } catch (err) {
-    console.error('Erro ao calcular elegibilidade:', err);
-    res.status(500).send('Erro no servidor.');
+    console.error('>>> [Elegibilidade] ERRO FATAL:', err);
+    if (err.name === 'SequelizeDatabaseError' && err.message.includes('no such column')) {
+        return res.status(500).json({ msg: 'Erro de Banco de Dados: Coluna ausente. Contate o suporte.' });
+    }
+    res.status(500).send('Erro no servidor ao calcular elegibilidade.');
   }
 };
 
@@ -1244,8 +1316,7 @@ exports.criarCobrancaInscricao = async (req, res) => {
 
         if (!idTransacaoGateway) throw new Error('Resposta da Cora sem ID.');
 
-        return await finalizar(metodoPagamento,
-  PagamentoItem, 'cora', { idTransacaoGateway, qrCodeText, linhaDigitavel });
+        return await finalizar(metodoPagamento, 'cora', { idTransacaoGateway, qrCodeText, linhaDigitavel });
       }
 
       // Default: PagBank
@@ -1276,8 +1347,7 @@ exports.criarCobrancaInscricao = async (req, res) => {
       const qrCodeText = respPagBank.data?.qr_codes?.[0]?.text;
       if (!idTransacaoGateway || !qrCodeText) throw new Error('Resposta inválida do PagBank.');
 
-      return await finalizar(metodoPagamento,
-  PagamentoItem, 'pagbank', { idTransacaoGateway, qrCodeText, linhaDigitavel: null });
+      return await finalizar(metodoPagamento, 'pagbank', { idTransacaoGateway, qrCodeText, linhaDigitavel: null });
     } catch (gatewayErr) {
       // Fallback: se Cora falhar, tenta PagBank
       const coraFailed = provider === 'cora';

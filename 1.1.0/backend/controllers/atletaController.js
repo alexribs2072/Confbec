@@ -49,7 +49,7 @@ exports.createOrUpdateMeuPerfil = async (req, res) => {
     // Pega os dados do corpo da requisição
     const {
         nome_completo, data_nascimento, rg, cpf,
-        logradouro, cep, bairro, cidade, estado, telefone_contato
+        logradouro, cep, bairro, cidade, estado, telefone_contato, sexo
         // Não inclui foto_url aqui, pois é tratada em outra rota, sexo
         } = req.body;
 

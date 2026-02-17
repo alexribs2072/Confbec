@@ -29,12 +29,14 @@ function LoginPage() {
   const [senha, setSenha] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); // Estado para mostrar/esconder senha
 
   // --- Hooks ---
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const from = location.state?.from?.pathname || "/";
 
   // Alternar visibilidade da senha
   const handleClickShowPassword = () => setShowPassword(!showPassword);
@@ -42,7 +44,7 @@ function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     
-    // Validação básica
+    // Validação básica front-end
     if (!email || !senha) {
       setError("Por favor, preencha todos os campos.");
       return;
@@ -53,31 +55,12 @@ function LoginPage() {
 
     try {
       const result = await auth.login(email, senha);
-      
       if (result.success) {
-        // --- LÓGICA DE REDIRECIONAMENTO INTELIGENTE ---
-        
-        // 1. Prioridade: Se o usuário veio redirecionado de uma rota protegida (ex: tentou entrar em /competicoes/carrinho)
-        if (location.state?.from?.pathname) {
-          navigate(location.state.from.pathname, { replace: true });
-        } 
-        // 2. Login Direto: Redireciona para o Painel correto baseado no Perfil
-        else {
-          const tipo = result.user?.tipo; // Assume que o login retorna o objeto user
-
-          if (tipo === 'admin') {
-            navigate('/admin', { replace: true });
-          } else {
-            // Atletas, Professores e Treinadores vão para o Perfil (que agora tem o Menu Lateral)
-            navigate('/perfil-atleta', { replace: true });
-          }
-        }
-
+        navigate(from, { replace: true });
       } else {
         setError(result.message || "Credenciais inválidas. Tente novamente.");
       }
     } catch (err) {
-      console.error(err);
       setError("Ocorreu um erro de conexão. Verifique sua internet.");
     } finally {
       setLoading(false);
@@ -95,6 +78,7 @@ function LoginPage() {
           alignItems: 'center',
         }}
       >
+        {/* Usando Paper para dar um efeito de elevação/card no formulário */}
         <Paper 
           elevation={3} 
           sx={{ 
@@ -143,6 +127,7 @@ function LoginPage() {
               onChange={(e) => setSenha(e.target.value)}
               error={!!error}
               disabled={loading}
+              // Adição do ícone para mostrar/esconder senha
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">

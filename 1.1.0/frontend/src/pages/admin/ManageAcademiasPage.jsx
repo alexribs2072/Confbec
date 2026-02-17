@@ -12,11 +12,14 @@ import {
 
 // --- Ícones ---
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter'; // Ícone de Academia
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import BusinessIcon from '@mui/icons-material/Business';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import SaveIcon from '@mui/icons-material/Save';
+import CleaningServicesIcon from '@mui/icons-material/CleaningServices'; // Novo ícone importado
 
 // --- Funções de Máscara ---
 const maskCNPJ = (v) => {
@@ -36,6 +39,9 @@ function ManageAcademiasPage() {
   const [academias, setAcademias] = useState([]);
   const [federacoes, setFederacoes] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+
+  // Estado para controlar EDICÃO (null = criando, número = editando ID)
+  const [editingId, setEditingId] = useState(null);
 
   // Form Data
   const [formData, setFormData] = useState({
@@ -111,6 +117,41 @@ function ManageAcademiasPage() {
     }
   };
 
+  // --- Lógica de Preencher Formulário para Edição ---
+  const handleEdit = (academia) => {
+    setEditingId(academia.id);
+    
+    // Preenche dados principais
+    setFormData({
+      nome: academia.nome,
+      cnpj: academia.cnpj ? maskCNPJ(academia.cnpj) : '',
+      email: academia.email || '',
+      telefone: academia.telefone ? maskPhone(academia.telefone) : '',
+      federacao_id: academia.federacao_id || '',
+      responsavel_id: academia.responsavel_id || ''
+    });
+
+    // Preenche endereço
+    setEndereco({
+      logradouro: academia.logradouro || '',
+      cep: academia.cep ? maskCEP(academia.cep) : '',
+      bairro: academia.bairro || '',
+      cidade: academia.cidade || '',
+      estado: academia.estado || ''
+    });
+
+    // Rola a página para o topo (formulário)
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // --- Cancelar Edição ---
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setFormData({ nome: '', cnpj: '', email: '', telefone: '', federacao_id: '', responsavel_id: '' });
+    setEndereco({ logradouro: '', cep: '', bairro: '', cidade: '', estado: '' });
+  };
+
+  // --- Submit (Criar ou Editar) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -124,17 +165,24 @@ function ManageAcademiasPage() {
     try {
       setSaving(true);
       const dadosCompletos = { ...formData, ...endereco };
-      await axios.post('/api/academias', dadosCompletos);
+
+      if (editingId) {
+        // --- MODO EDIÇÃO (PUT) ---
+        await axios.put(`/api/academias/${editingId}`, dadosCompletos);
+        setSuccessMsg('Academia atualizada com sucesso!');
+      } else {
+        // --- MODO CRIAÇÃO (POST) ---
+        await axios.post('/api/academias', dadosCompletos);
+        setSuccessMsg('Academia cadastrada com sucesso!');
+      }
       
-      setSuccessMsg('Academia cadastrada com sucesso!');
-      // Limpa formulário
-      setFormData({ nome: '', cnpj: '', email: '', telefone: '', federacao_id: '', responsavel_id: '' });
-      setEndereco({ logradouro: '', cep: '', bairro: '', cidade: '', estado: '' });
+      // Limpa formulário e reseta modo de edição
+      handleCancelEdit();
       
       fetchData(); // Recarrega lista
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err) {
-      setError(err.response?.data?.msg || 'Erro ao criar academia.');
+      setError(err.response?.data?.msg || 'Erro ao salvar academia.');
     } finally {
       setSaving(false);
     }
@@ -145,6 +193,7 @@ function ManageAcademiasPage() {
     try {
       await axios.delete(`/api/academias/${id}`);
       setSuccessMsg('Academia removida.');
+      if (editingId === id) handleCancelEdit();
       fetchData();
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err) {
@@ -176,11 +225,13 @@ function ManageAcademiasPage() {
         {error && <Zoom in><Alert severity="error">{error}</Alert></Zoom>}
       </Box>
 
-      {/* --- 2. CARD DE CADASTRO --- */}
-      <Paper elevation={3} sx={{ p: 4, mb: 5, borderRadius: 3, borderLeft: '6px solid #FF8C00' }}>
+      {/* --- 2. CARD DE CADASTRO / EDIÇÃO --- */}
+      <Paper elevation={3} sx={{ p: 4, mb: 5, borderRadius: 3, borderLeft: editingId ? '6px solid #FF8C00' : '6px solid #FF8C00' }}>
+        
+        {/* Cabeçalho do Card (Sem o botão cancelar antigo) */}
         <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <AddCircleOutlineIcon color="primary" />
-          Nova Academia
+          {editingId ? <EditIcon color="primary" /> : <AddCircleOutlineIcon color="warning" />}
+          {editingId ? "Editar Academia" : "Nova Academia"}
         </Typography>
 
         <form onSubmit={handleSubmit}>
@@ -254,19 +305,31 @@ function ManageAcademiasPage() {
               </Paper>
             </Grid>
 
-            {/* Botão Salvar */}
-            <Grid item xs={12}>
+            {/* Botões de Ação (ATUALIZADO PARA FICAR IGUAL AO FEDERAÇÕES) */}
+            <Grid item xs={12} sx={{ display: 'flex', gap: 2, mt: 1 }}>
               <Button 
                 type="submit" 
                 variant="contained" 
+                color={editingId ? "primary" : "warning"} 
                 size="large" 
-                fullWidth 
                 disabled={saving}
-                startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <FitnessCenterIcon />}
-                sx={{ height: 50, fontWeight: 'bold' }}
+                startIcon={saving ? <CircularProgress size={20} color="inherit" /> : (editingId ? <SaveIcon /> : <AddCircleOutlineIcon />)}
+                sx={{ minWidth: 200, fontWeight: 'bold' }}
               >
-                {saving ? 'Cadastrando...' : 'Salvar Academia'}
+                {saving ? (editingId ? 'Atualizando...' : 'Cadastrando...') : (editingId ? 'Atualizar Academia' : 'Cadastrar Academia')}
               </Button>
+
+              {editingId && (
+                <Button 
+                  variant="outlined" 
+                  color="inherit" 
+                  onClick={handleCancelEdit}
+                  startIcon={<CleaningServicesIcon />}
+                  size="large"
+                >
+                  Cancelar
+                </Button>
+              )}
             </Grid>
           </Grid>
         </form>
@@ -302,7 +365,7 @@ function ManageAcademiasPage() {
                 </TableRow>
               ) : (
                 academias.map((ac) => (
-                  <TableRow key={ac.id} hover>
+                  <TableRow key={ac.id} hover selected={editingId === ac.id}>
                     <TableCell sx={{ fontWeight: 500 }}>{ac.nome}</TableCell>
                     <TableCell>
                       {ac.federacao ? (
@@ -320,6 +383,14 @@ function ManageAcademiasPage() {
                         </Box>
                     </TableCell>
                     <TableCell align="right">
+                      {/* Botão de EDITAR */}
+                      <Tooltip title="Editar">
+                        <IconButton onClick={() => handleEdit(ac)} color="primary" size="small" sx={{ mr: 1, bgcolor: 'primary.50' }}>
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+
+                      {/* Botão de EXCLUIR */}
                       <Tooltip title="Excluir">
                         <IconButton onClick={() => handleDelete(ac.id)} color="error" size="small" sx={{ bgcolor: 'error.50' }}>
                           <DeleteIcon />
