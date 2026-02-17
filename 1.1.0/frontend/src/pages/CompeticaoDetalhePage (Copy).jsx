@@ -115,11 +115,16 @@ export default function CompeticaoDetalhePage() {
         categoria_combate: categoria,
       };
 
-      await axios.post(`/api/competicoes/eventos/${eventoId}/inscricoes`, payload);
+      const res = await axios.post(`/api/competicoes/eventos/${eventoId}/inscricoes`, payload);
+      const invoiceId = res.data?.invoice?.id;
       setOpen(false);
 
-      // Novo fluxo: vai para o carrinho e faz checkout por lote
-      navigate('/competicoes/carrinho');
+      // Leva o atleta direto para "Minhas inscrições" (agora mostra invoices)
+      if (invoiceId) {
+        navigate('/competicoes/minhas-inscricoes');
+      } else {
+        navigate('/competicoes/minhas-inscricoes');
+      }
 
     } catch (err) {
       console.error('[CompeticaoDetalhePage] erro inscrição:', err);
@@ -220,7 +225,7 @@ export default function CompeticaoDetalhePage() {
         <DialogTitle>Inscrição</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Selecione uma ou mais submodalidades para adicionar ao carrinho. Você escolhe o método e paga tudo junto no checkout.
+            Selecione uma ou mais submodalidades. O sistema irá gerar 1 invoice com itens e cobrar o total.
           </Typography>
 
           <FormGroup sx={{ mb: 2 }}>

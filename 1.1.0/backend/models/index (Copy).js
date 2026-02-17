@@ -276,17 +276,6 @@ db.CompeticaoInscricao.belongsTo(db.CompeticaoModalidade, {
     as: 'competicaoModalidade'
 });
 
-// PagamentoItem -> Inscrição (para listar cobranças/itens por inscrição)
-db.CompeticaoInscricao.hasMany(db.PagamentoItem, {
-    foreignKey: 'competicao_inscricao_id',
-    as: 'pagamentoItens'
-});
-db.PagamentoItem.belongsTo(db.CompeticaoInscricao, {
-    foreignKey: 'competicao_inscricao_id',
-    as: 'inscricaoCompeticao'
-});
-
-
 // Autorização
 db.CompeticaoEvento.hasMany(db.CompeticaoAutorizacao, {
     foreignKey: 'evento_id',

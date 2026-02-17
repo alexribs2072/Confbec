@@ -502,12 +502,10 @@ exports.criarInscricoesLote = async (req, res) => {
       });
     }
 
-    // ✅ Novo fluxo (checkout por lote):
-    // Aqui a inscrição APENAS entra no carrinho (status PENDENTE_PAGAMENTO).
-    // A cobrança/pagamento é gerada depois em /competicoes/checkout.
     const t = await db.sequelize.transaction();
     try {
       const criadas = [];
+      const itensPagamento = [];
       let total = 0;
       for (const mid of wanted) {
         const mod = byId.get(mid);
@@ -537,11 +535,31 @@ exports.criarInscricoesLote = async (req, res) => {
         criadas.push(payload);
 
         total += Number(taxa || 0);
+        itensPagamento.push({
+          competicao_inscricao_id: inscricao.id,
+          descricao: `${evento.nome} - ${mod.nome}`,
+          valor: Number(taxa || 0),
+        });
+      }
+
+      const pagamento = await Pagamento.create({
+        tipo: 'competicao',
+        evento_id: evento.id,
+        atleta_id: atletaId,
+        valor_total: total,
+        valor_pago: total,
+        status: 'pendente',
+      }, { transaction: t });
+
+      if (itensPagamento.length) {
+        await PagamentoItem.bulkCreate(
+          itensPagamento.map(i => ({ ...i, pagamento_id: pagamento.id })),
+          { transaction: t }
+        );
       }
 
       await t.commit();
-      // retorna somente as inscrições criadas (carrinho)
-      return res.status(201).json({ total, inscricoes: criadas });
+      return res.status(201).json({ pagamento_id: pagamento.id, total, itens: itensPagamento, inscricoes: criadas });
     } catch (e) {
       await t.rollback();
       console.error('Erro ao criar inscrições em lote:', e);
@@ -550,300 +568,6 @@ exports.criarInscricoesLote = async (req, res) => {
   } catch (err) {
     console.error('Erro ao criar inscrições em lote:', err);
     res.status(500).send('Erro no servidor.');
-  }
-};
-
-// ===== Carrinho (inscrições pendentes e ainda não vinculadas a pagamento) =====
-// GET /api/competicoes/carrinho
-exports.carrinho = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-
-    const inscricoes = await CompeticaoInscricao.findAll({
-      where: { atleta_id: req.usuario.id, status: 'PENDENTE_PAGAMENTO' },
-      order: [['created_at', 'DESC']],
-      include: [
-        { model: CompeticaoEvento, as: 'evento' },
-        { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-      ]
-    });
-
-    const ids = (inscricoes || []).map(i => i.id);
-    if (!ids.length) return res.json({ total: 0, itens: [] });
-
-    const itensPagos = await PagamentoItem.findAll({
-      where: { competicao_inscricao_id: { [Op.in]: ids } },
-      attributes: ['competicao_inscricao_id']
-    });
-    const jaNoPagamento = new Set((itensPagos || []).map(x => Number(x.competicao_inscricao_id)));
-    const pendentes = (inscricoes || []).filter(i => !jaNoPagamento.has(Number(i.id)));
-
-    const keys = pendentes.map(i => ({ evento_id: i.evento_id, competicao_modalidade_id: i.competicao_modalidade_id }));
-    const eventoIds = [...new Set(keys.map(k => Number(k.evento_id)))];
-    const modIds = [...new Set(keys.map(k => Number(k.competicao_modalidade_id)))];
-
-    const vinculos = await CompeticaoEventoModalidade.findAll({
-      where: {
-        evento_id: { [Op.in]: eventoIds },
-        competicao_modalidade_id: { [Op.in]: modIds },
-      }
-    });
-    const taxaByKey = new Map((vinculos || []).map(v => [`${v.evento_id}:${v.competicao_modalidade_id}`, Number(v.taxa_inscricao || 0)]));
-
-    let total = 0;
-    const itens = pendentes.map(i => {
-      const j = i.toJSON();
-      const taxa = taxaByKey.get(`${j.evento_id}:${j.competicao_modalidade_id}`) ?? Number(j.evento?.taxa_inscricao ?? 0);
-      j.taxa_inscricao = Number(taxa || 0);
-      total += Number(j.taxa_inscricao || 0);
-      j.divisao_peso_label = divisaoPesoLabel(j.divisao_peso);
-      j.fight_config = fightConfigByModalidadeCode(j.competicaoModalidade?.code, j.idade_anos);
-      return j;
-    });
-
-    return res.json({ total, itens });
-  } catch (err) {
-    console.error('Erro ao obter carrinho:', err);
-    return res.status(500).json({ msg: 'Erro ao obter carrinho.' });
-  }
-};
-
-// ===== Checkout por lote =====
-// POST /api/competicoes/checkout
-// Body: { inscricao_ids: [..], metodo_pagamento_id }
-exports.checkoutLote = async (req, res) => {
-  const body = req.body || {};
-  const inscricao_ids = Array.isArray(body.inscricao_ids) ? body.inscricao_ids : [];
-  const metodoPagamentoId = body.metodo_pagamento_id || body.metodoPagamentoId;
-
-  if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-  if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-  if (!inscricao_ids.length) return res.status(400).json({ msg: 'Informe inscricao_ids (array).' });
-  if (!metodoPagamentoId) return res.status(400).json({ msg: 'Informe metodo_pagamento_id.' });
-
-  try {
-    const inscricoes = await CompeticaoInscricao.findAll({
-      where: {
-        id: { [Op.in]: inscricao_ids.map(Number) },
-        atleta_id: req.usuario.id,
-        status: 'PENDENTE_PAGAMENTO'
-      },
-      include: [
-        { model: CompeticaoEvento, as: 'evento' },
-        { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-      ]
-    });
-
-    if (!inscricoes || inscricoes.length === 0) {
-      return res.status(404).json({ msg: 'Nenhuma inscrição pendente encontrada.' });
-    }
-    if (inscricoes.length !== inscricao_ids.length) {
-      return res.status(400).json({ msg: 'Uma ou mais inscrições são inválidas, não são suas ou não estão pendentes.' });
-    }
-
-    const itensExistentes = await PagamentoItem.findAll({
-      where: { competicao_inscricao_id: { [Op.in]: inscricao_ids.map(Number) } },
-      attributes: ['competicao_inscricao_id']
-    });
-    if (itensExistentes?.length) {
-      const ids = itensExistentes.map(x => Number(x.competicao_inscricao_id));
-      return res.status(400).json({ msg: `Uma ou mais inscrições já estão em uma cobrança: ${ids.join(', ')}.` });
-    }
-
-    const atleta = await getAtletaWithUsuario(req.usuario.id);
-    if (!atleta || !atleta.usuario) {
-      return res.status(400).json({ msg: 'Dados do atleta incompletos.' });
-    }
-
-    const metodoPagamento = await MetodoPagamento.findOne({ where: { id: metodoPagamentoId, ativo: true } });
-    if (!metodoPagamento) return res.status(400).json({ msg: 'Método de pagamento inválido ou inativo.' });
-
-    const eventoIds = [...new Set(inscricoes.map(i => Number(i.evento_id)))];
-    const modIds = [...new Set(inscricoes.map(i => Number(i.competicao_modalidade_id)))];
-    const vinculos = await CompeticaoEventoModalidade.findAll({
-      where: {
-        evento_id: { [Op.in]: eventoIds },
-        competicao_modalidade_id: { [Op.in]: modIds },
-      }
-    });
-    const taxaByKey = new Map((vinculos || []).map(v => [`${v.evento_id}:${v.competicao_modalidade_id}`, Number(v.taxa_inscricao || 0)]));
-
-    const itens = [];
-    let total = 0;
-    for (const ins of inscricoes) {
-      const taxa = taxaByKey.get(`${ins.evento_id}:${ins.competicao_modalidade_id}`) ?? Number(ins.evento?.taxa_inscricao ?? 0);
-      const valor = Number(taxa || 0);
-      if (valor <= 0) {
-        return res.status(400).json({ msg: 'Há item com taxa 0 neste checkout. Remova do carrinho ou configure a taxa.' });
-      }
-      total += valor;
-      itens.push({
-        competicao_inscricao_id: ins.id,
-        descricao: `${ins.evento?.nome || 'Evento'} - ${ins.competicaoModalidade?.nome || 'Submodalidade'}`,
-        valor,
-      });
-    }
-
-    const valorCentavosTotal = Math.round(total * 100);
-    if (valorCentavosTotal <= 0) return res.status(400).json({ msg: 'Total inválido.' });
-
-    const cpfDigits = String(atleta.cpf || '').replace(/\D/g, '');
-    const cepDigits = String(atleta.cep || '').replace(/\D/g, '');
-
-    const metodoConfig = (metodoPagamento.configuracao && typeof metodoPagamento.configuracao === 'object')
-      ? metodoPagamento.configuracao
-      : {};
-
-    const t = await db.sequelize.transaction();
-    let pagamento;
-    try {
-      pagamento = await Pagamento.create({
-        tipo: 'competicao',
-        atleta_id: req.usuario.id,
-        metodo_pagamento_id: metodoPagamento.id,
-        valor_total: total,
-        valor_pago: total,
-        status: 'pendente',
-      }, { transaction: t });
-
-      await PagamentoItem.bulkCreate(
-        itens.map(i => ({
-          pagamento_id: pagamento.id,
-          competicao_inscricao_id: i.competicao_inscricao_id,
-          descricao: i.descricao,
-          valor: i.valor,
-        })),
-        { transaction: t }
-      );
-
-      await t.commit();
-    } catch (e) {
-      await t.rollback();
-      console.error('Erro ao criar pagamento/itens:', e);
-      return res.status(500).json({ msg: 'Erro ao criar cobrança.' });
-    }
-
-    const provider = (safeProviderFromMetodo(metodoPagamento) || (String(metodoPagamento.nome || '').toLowerCase().includes('cora') ? 'cora' : 'pagbank'));
-
-    const finalizar = async (gatewayData) => {
-      await pagamento.update({
-        id_transacao_gateway: gatewayData.idTransacaoGateway,
-        qr_code_pix: gatewayData.qrCodeText || null,
-        linha_digitavel_boleto: gatewayData.linhaDigitavel || null,
-      });
-      return res.status(201).json({
-        pagamentoId: pagamento.id,
-        total,
-        metodoPagamento: { id: metodoPagamento.id, nome: metodoPagamento.nome, provider },
-        pix: { qrCodeText: gatewayData.qrCodeText || null },
-        boleto: { linhaDigitavel: gatewayData.linhaDigitavel || null },
-        status: pagamento.status,
-        itens
-      });
-    };
-
-    try {
-      if (provider === 'cora') {
-        const missing = [];
-        if (!atleta.logradouro) missing.push('logradouro');
-        if (!atleta.bairro) missing.push('bairro');
-        if (!atleta.cidade) missing.push('cidade');
-        if (!atleta.estado) missing.push('estado');
-        if (!cepDigits) missing.push('cep');
-        if (missing.length) {
-          await pagamento.destroy();
-          return res.status(400).json({ msg: `Para pagar via Cora, atualize seu endereço do perfil. Campos faltando: ${missing.join(', ')}.` });
-        }
-
-        const dueDays = Number(metodoConfig.dueDays ?? 1);
-        const dueDate = new Date(Date.now() + (Math.max(0, dueDays) * 86400000));
-        const dueDateStr = dueDate.toISOString().slice(0, 10);
-
-        const paymentForms = Array.isArray(metodoConfig.payment_forms)
-          ? metodoConfig.payment_forms
-          : ['BANK_SLIP', 'PIX'];
-
-        const numero = metodoConfig.address_number || parseAddressNumber(atleta.logradouro) || 'S/N';
-
-        const payloadCora = {
-          code: `CONFBEC_PAG_${pagamento.id}`,
-          payment_forms: paymentForms,
-          customer: {
-            name: atleta.nome_completo,
-            email: atleta.usuario.email,
-            document: { identity: cpfDigits, type: 'CPF' },
-            address: {
-              street: atleta.logradouro,
-              number: String(numero),
-              district: atleta.bairro,
-              city: atleta.cidade,
-              state: atleta.estado,
-              complement: metodoConfig.address_complement || 'N/A',
-              zip_code: cepDigits
-            }
-          },
-          services: itens.map((it) => ({
-            name: 'Inscrição Competição',
-            description: it.descricao,
-            amount: Math.round(Number(it.valor) * 100),
-          })),
-          payment_terms: { due_date: dueDateStr }
-        };
-
-        const idempotencyKey = crypto.randomUUID();
-        const coraResp = await coraClient.createInvoice(payloadCora, { idempotencyKey });
-        const idTransacaoGateway = coraResp?.id || coraResp?.invoice_id || coraResp?.payment?.id || null;
-        const linhaDigitavel =
-          coraResp?.bank_slip?.digitable_line ||
-          coraResp?.digitable_line ||
-          coraResp?.boleto?.digitable_line ||
-          null;
-        const qrCodeText =
-          coraResp?.pix?.emv ||
-          coraResp?.pix?.qr_code ||
-          coraResp?.pix?.payload ||
-          coraResp?.qr_code ||
-          null;
-
-        if (!idTransacaoGateway) throw new Error('Resposta da Cora sem ID.');
-        return await finalizar({ idTransacaoGateway, qrCodeText, linhaDigitavel });
-      }
-
-      const appUrl = process.env.APP_PUBLIC_URL;
-      const notificationUrls = [];
-      if (appUrl) notificationUrls.push(`${appUrl}/api/pagamentos/webhook/pagbank`);
-
-      const payloadPagBank = {
-        reference_id: `CONFBEC_PAG_${pagamento.id}`,
-        customer: {
-          name: atleta.nome_completo,
-          email: atleta.usuario.email,
-          tax_id: cpfDigits,
-        },
-        items: itens.map((it) => ({
-          reference_id: `INSCRICAO_${it.competicao_inscricao_id}`,
-          name: it.descricao,
-          quantity: 1,
-          unit_amount: Math.round(Number(it.valor) * 100),
-        })),
-        qr_codes: [{ amount: { value: valorCentavosTotal } }],
-        notification_urls: notificationUrls,
-      };
-
-      const respPagBank = await pagbankClient.createOrderPix(payloadPagBank);
-      const idTransacaoGateway = respPagBank.data?.id;
-      const qrCodeText = respPagBank.data?.qr_codes?.[0]?.text;
-      if (!idTransacaoGateway || !qrCodeText) throw new Error('Resposta inválida do PagBank.');
-
-      return await finalizar({ idTransacaoGateway, qrCodeText, linhaDigitavel: null });
-    } catch (gatewayErr) {
-      console.error('Erro no gateway (checkout lote):', gatewayErr);
-      return res.status(500).json({ msg: 'Falha ao gerar cobrança no gateway.' });
-    }
-  } catch (err) {
-    console.error('Erro no checkout por lote:', err);
-    return res.status(500).json({ msg: 'Erro no checkout.' });
   }
 };
 
@@ -858,21 +582,9 @@ exports.minhasInscricoes = async (req, res) => {
       include: [
         { model: CompeticaoEvento, as: 'evento' },
         { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-        {
-          model: PagamentoItem,
-          as: 'pagamentoItens',
-          required: false,
-          include: [
-            {
-              model: Pagamento,
-              as: 'pagamento',
-              include: [
-                { model: MetodoPagamento, as: 'metodoPagamento', required: false, attributes: ['id', 'nome', 'configuracao'] },
-                { model: PagamentoItem, as: 'itens', required: false },
-              ]
-            }
-          ]
-        },
+        { model: Pagamento,
+  PagamentoItem, as: 'pagamentos', include: [{ model: MetodoPagamento,
+  PagamentoItem, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }] },
       ]
     });
 
@@ -887,107 +599,6 @@ exports.minhasInscricoes = async (req, res) => {
   } catch (err) {
     console.error('Erro ao listar minhas inscrições:', err);
     res.status(500).send('Erro no servidor.');
-  }
-};
-
-// GET /competicoes/inscricoes/:inscricaoId (atleta dono ou admin)
-exports.getInscricao = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-
-    const { inscricaoId } = req.params;
-    const inscricao = await CompeticaoInscricao.findByPk(inscricaoId, {
-      include: [
-        { model: CompeticaoEvento, as: 'evento' },
-        { model: CompeticaoModalidade, as: 'competicaoModalidade' },
-        {
-          model: PagamentoItem,
-          as: 'pagamentoItens',
-          required: false,
-          include: [{ model: Pagamento, as: 'pagamento', include: [{ model: MetodoPagamento, as: 'metodoPagamento', required: false }] }]
-        }
-      ]
-    });
-
-    if (!inscricao) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
-
-    if (req.usuario.tipo === 'atleta' && Number(inscricao.atleta_id) !== Number(req.usuario.id)) {
-      return res.status(403).json({ msg: 'Acesso negado.' });
-    }
-
-    const j = inscricao.toJSON();
-    j.divisao_peso_label = divisaoPesoLabel(j.divisao_peso);
-    j.fight_config = fightConfigByModalidadeCode(j.competicaoModalidade?.code, j.idade_anos);
-    return res.json(j);
-  } catch (err) {
-    console.error('Erro ao obter inscrição:', err);
-    return res.status(500).send('Erro no servidor.');
-  }
-};
-
-// PUT /competicoes/inscricoes/:inscricaoId (atleta, antes de pagar)
-exports.atualizarInscricaoAtleta = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-
-    const { inscricaoId } = req.params;
-    const inscricao = await CompeticaoInscricao.findOne({ where: { id: inscricaoId, atleta_id: req.usuario.id } });
-    if (!inscricao) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
-
-    // só permite alterar enquanto pendente de pagamento
-    if (inscricao.status !== 'PENDENTE_PAGAMENTO') {
-      return res.status(400).json({ msg: 'Inscrição não pode ser alterada neste status.' });
-    }
-
-    const allowed = ['peso_kg', 'categoria_combate'];
-    const patch = {};
-    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
-
-    if ('peso_kg' in patch) {
-      const evento = await CompeticaoEvento.findByPk(inscricao.evento_id);
-      const atleta = await getAtletaWithUsuario(req.usuario.id);
-      const idadeAnos = calcAgeYears(atleta.data_nascimento, evento.data_evento);
-      const grupoEtario = grupoEtarioFromAge(idadeAnos);
-      const pesoCheck = validatePesoMinimo(grupoEtario, patch.peso_kg);
-      if (!pesoCheck.ok) return res.status(400).json({ msg: pesoCheck.msg });
-      const divPeso = divisaoPesoFromGrupo(grupoEtario, patch.peso_kg);
-      if (!divPeso) return res.status(400).json({ msg: 'Não foi possível calcular a divisão de peso.' });
-      patch.divisao_peso = divPeso;
-    }
-
-    if ('categoria_combate' in patch) {
-      const catCheck = validateCategoriaCombate(patch.categoria_combate, null);
-      if (!catCheck.ok) return res.status(400).json({ msg: catCheck.msg });
-    }
-
-    await inscricao.update(patch);
-    return res.json(inscricao);
-  } catch (err) {
-    console.error('Erro ao atualizar inscrição:', err);
-    return res.status(500).send('Erro no servidor.');
-  }
-};
-
-// DELETE /competicoes/inscricoes/:inscricaoId (atleta)
-exports.cancelarInscricao = async (req, res) => {
-  try {
-    if (!req.usuario) return res.status(401).json({ msg: 'Não autenticado.' });
-    if (req.usuario.tipo !== 'atleta') return res.status(403).json({ msg: 'Apenas atletas.' });
-
-    const { inscricaoId } = req.params;
-    const inscricao = await CompeticaoInscricao.findOne({ where: { id: inscricaoId, atleta_id: req.usuario.id } });
-    if (!inscricao) return res.status(404).json({ msg: 'Inscrição não encontrada.' });
-
-    if (!['PENDENTE_PAGAMENTO', 'AGUARDANDO_AUTORIZACAO'].includes(inscricao.status)) {
-      return res.status(400).json({ msg: 'Inscrição não pode ser cancelada neste status.' });
-    }
-
-    await inscricao.update({ status: 'CANCELADA' });
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('Erro ao cancelar inscrição:', err);
-    return res.status(500).send('Erro no servidor.');
   }
 };
 

@@ -36,7 +36,6 @@ import CompeticoesPage from './pages/CompeticoesPage.jsx';
 import CompeticaoDetalhePage from './pages/CompeticaoDetalhePage.jsx';
 import MinhasInscricoesCompeticaoPage from './pages/MinhasInscricoesCompeticaoPage.jsx';
 import CompeticaoInscricaoDetalhePage from './pages/CompeticaoInscricaoDetalhePage.jsx';
-import CompeticoesCarrinhoPage from './pages/CompeticoesCarrinhoPage.jsx';
 
 // Páginas de Gestão (Professor/Admin)
 import AprovacoesPage from './pages/AprovacoesPage.jsx';
@@ -71,7 +70,6 @@ const router = createBrowserRouter([
       // Competições (público: lista e detalhes)
       { path: 'competicoes', element: <CompeticoesPage /> },
       { path: 'competicoes/:eventoId', element: <CompeticaoDetalhePage /> },
-      { path: 'competicoes/carrinho', element: <ProtectedRoute><CompeticoesCarrinhoPage /></ProtectedRoute> },
       // Minhas inscrições (atleta logado)
       { path: 'competicoes/minhas-inscricoes', element: <ProtectedRoute><MinhasInscricoesCompeticaoPage /></ProtectedRoute> },
       { path: 'competicoes/inscricoes/:inscricaoId', element: <ProtectedRoute><CompeticaoInscricaoDetalhePage /></ProtectedRoute> },

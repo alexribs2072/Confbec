@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -36,42 +36,89 @@ function money(v) {
 
 export default function MinhasInscricoesCompeticaoPage() {
   const navigate = useNavigate();
-  const [data, setData] = useState([]);
+
+  const [inscricoes, setInscricoes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [payingId, setPayingId] = useState(null);
 
-  const fetchInvoices = async () => {
+  const fetchInscricoes = async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await axios.get('/api/competicoes/invoices/me');
-      setData(res.data || []);
+      const res = await axios.get('/api/competicoes/inscricoes/me');
+      setInscricoes(res.data || []);
     } catch (err) {
       console.error('[MinhasInscricoesCompeticaoPage] erro:', err);
-      setError(err.response?.data?.msg || 'Erro ao carregar inscrições/faturas.');
+      setError(err.response?.data?.msg || 'Erro ao carregar inscrições.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchInvoices();
+    fetchInscricoes();
   }, []);
 
-  const pagarInvoice = async (invoiceId) => {
-    try {
-      setPayingId(invoiceId);
-      const res = await axios.post(`/api/competicoes/invoices/${invoiceId}/criar-cobranca`, {});
-      const pagamentoId = res.data?.pagamentoId;
-      if (!pagamentoId) throw new Error('Pagamento não retornado pelo servidor.');
-      navigate(`/pagamento/${pagamentoId}`);
-    } catch (err) {
-      console.error('[MinhasInscricoesCompeticaoPage] erro pagar:', err);
-      setError(err.response?.data?.msg || 'Erro ao gerar cobrança.');
-    } finally {
-      setPayingId(null);
-    }
+  // Agrupa por pagamento (quando houver) — caso não tenha pagamento, agrupa por evento
+  const grupos = useMemo(() => {
+    const map = new Map();
+
+    (inscricoes || []).forEach((i) => {
+      const item = (i.pagamentoItens || [])[0];
+      const pagamento = item?.pagamento || null;
+      const key = pagamento ? `p:${pagamento.id}` : `e:${i.evento_id}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          pagamento,
+          evento: i.evento || null,
+          itens: [],
+          inscricoes: [],
+        });
+      }
+
+      const g = map.get(key);
+      g.inscricoes.push(i);
+      if (pagamento) {
+        // usa itens do pagamento se existirem, senão monta a partir da inscrição
+        const itens = pagamento.itens && pagamento.itens.length ? pagamento.itens : null;
+        if (itens) {
+          g.itens = itens;
+        } else {
+          g.itens.push({
+            id: `${i.id}`,
+            descricao: `${i.evento?.nome || 'Evento'} - ${i.competicaoModalidade?.nome || 'Submodalidade'}`,
+            valor: item?.valor ?? 0,
+          });
+        }
+      } else {
+        g.itens.push({
+          id: `${i.id}`,
+          descricao: `${i.evento?.nome || 'Evento'} - ${i.competicaoModalidade?.nome || 'Submodalidade'}`,
+          valor: 0,
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const da = new Date(a.evento?.data_evento || 0).getTime();
+      const db = new Date(b.evento?.data_evento || 0).getTime();
+      return db - da;
+    });
+  }, [inscricoes]);
+
+  const totalGrupo = (g) => {
+    if (g.pagamento?.valor_total != null) return Number(g.pagamento.valor_total || 0);
+    return (g.itens || []).reduce((acc, it) => acc + Number(it.valor || 0), 0);
+  };
+
+  const statusLabel = (g) => {
+    if (g.pagamento) return g.pagamento.status;
+    // fallback: se todas confirmadas
+    const sts = new Set((g.inscricoes || []).map((i) => i.status));
+    if (sts.size === 1) return Array.from(sts)[0];
+    return 'MISTO';
   };
 
   if (loading) {
@@ -92,59 +139,72 @@ export default function MinhasInscricoesCompeticaoPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {data.length === 0 ? (
+      {grupos.length === 0 ? (
         <Alert severity="info">Você ainda não possui inscrições em competições.</Alert>
       ) : (
         <Grid container spacing={2}>
-          {data.map((inv) => (
-            <Grid item xs={12} md={6} key={inv.id}>
+          {grupos.map((g) => (
+            <Grid item xs={12} md={6} key={g.key}>
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="h6" fontWeight={800} gutterBottom>
-                    {inv.evento?.nome || 'Evento'}
+                    {g.evento?.nome || 'Evento'}
                   </Typography>
 
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                    <Chip size="small" label={`Invoice #${inv.id}`} variant="outlined" />
-                    <Chip size="small" label={inv.status} color={inv.status === 'PAGO' ? 'success' : (inv.status === 'PENDENTE' ? 'warning' : 'default')} variant="outlined" />
-                    <Chip size="small" label={`Total: ${money(inv.valor_total)}`} variant="outlined" />
+                    {g.pagamento?.id ? (
+                      <Chip size="small" label={`Pagamento #${g.pagamento.id}`} variant="outlined" />
+                    ) : (
+                      <Chip size="small" label="Sem cobrança" variant="outlined" />
+                    )}
+                    <Chip size="small" label={statusLabel(g)} variant="outlined" />
+                    <Chip size="small" label={`Total: ${money(totalGrupo(g))}`} variant="outlined" />
                   </Box>
 
                   <Typography variant="body2" color="text.secondary">
-                    Data do evento: <strong>{fmtDate(inv.evento?.data_evento)}</strong>
+                    Data do evento: <strong>{fmtDate(g.evento?.data_evento)}</strong>
                   </Typography>
 
                   <Divider sx={{ my: 1.5 }} />
 
                   <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>Itens</Typography>
-                  {(inv.itens || []).length === 0 ? (
+                  {(g.itens || []).length === 0 ? (
                     <Typography variant="body2" color="text.secondary">—</Typography>
                   ) : (
                     <List dense disablePadding>
-                      {(inv.itens || []).map((it) => (
+                      {(g.itens || []).map((it) => (
                         <ListItem key={it.id} disableGutters divider>
-                          <ListItemText
-                            primary={it.descricao}
-                            secondary={money(it.valor)}
-                          />
+                          <ListItemText primary={it.descricao} secondary={money(it.valor)} />
                         </ListItem>
                       ))}
                     </List>
                   )}
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>Inscrições</Typography>
+                  <List dense disablePadding>
+                    {(g.inscricoes || []).map((i) => (
+                      <ListItem key={i.id} disableGutters divider>
+                        <ListItemText
+                          primary={i.competicaoModalidade?.nome || 'Submodalidade'}
+                          secondary={`Status: ${i.status} • Peso: ${i.peso_kg}kg • ${i.divisao_peso_label || i.divisao_peso}`}
+                        />
+                        <Button size="small" onClick={() => navigate(`/competicoes/inscricoes/${i.id}`)}>
+                          Ver
+                        </Button>
+                      </ListItem>
+                    ))}
+                  </List>
                 </CardContent>
 
                 <CardActions sx={{ px: 2, pb: 2, gap: 1 }}>
-                  {inv.status === 'PENDENTE' ? (
-                    <Button
-                      variant="contained"
-                      onClick={() => pagarInvoice(inv.id)}
-                      disabled={payingId === inv.id}
-                      fullWidth
-                    >
-                      {payingId === inv.id ? 'Gerando cobrança...' : 'Pagar invoice'}
+                  {g.pagamento?.id ? (
+                    <Button variant="outlined" fullWidth onClick={() => navigate(`/pagamento/${g.pagamento.id}`)}>
+                      Ver pagamento
                     </Button>
                   ) : (
-                    <Button variant="outlined" onClick={fetchInvoices} fullWidth>
+                    <Button variant="outlined" fullWidth onClick={fetchInscricoes}>
                       Atualizar
                     </Button>
                   )}

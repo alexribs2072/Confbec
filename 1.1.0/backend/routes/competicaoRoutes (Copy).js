@@ -27,9 +27,6 @@ router.delete('/submodalidades/:submodalidadeId', proteger, checkAdmin, competic
 router.get('/eventos/:eventoId/elegibilidade', proteger, competicaoController.elegibilidadeEvento);
 router.post('/eventos/:eventoId/inscricoes', proteger, competicaoController.criarInscricao);
 router.get('/inscricoes/me', proteger, competicaoController.minhasInscricoes);
-router.get('/inscricoes/:inscricaoId', proteger, competicaoController.getInscricao);
-router.put('/inscricoes/:inscricaoId', proteger, competicaoController.atualizarInscricaoAtleta);
-router.delete('/inscricoes/:inscricaoId', proteger, competicaoController.cancelarInscricao);
 
 // ===== Faturas/Pagamentos (agregado) =====
 router.get('/pagamentos/me', proteger, competicaoController.minhasFaturas);
