@@ -7,10 +7,10 @@ const { proteger, protegerOpcional, checkAdmin } = require('../middleware/authMi
 // ===== Eventos =====
 router.get('/eventos', protegerOpcional, competicaoController.listarEventos);
 router.get('/eventos/:eventoId', protegerOpcional, competicaoController.getEvento);
-
 router.post('/eventos', proteger, checkAdmin, competicaoController.criarEvento);
 router.put('/eventos/:eventoId', proteger, checkAdmin, competicaoController.atualizarEvento);
-router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.cancelarEvento);
+router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.excluirEvento);
+//router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.cancelarEvento);
 router.put('/eventos/:eventoId/modalidades', proteger, checkAdmin, competicaoController.atualizarModalidadesDoEvento);
 
 // ===== Modalidades de competição =====

@@ -8,7 +8,6 @@ const {
   MetodoPagamento,
   PagamentoItem,
   Pagamento,
-  PagamentoItem,
   CompeticaoEvento,
   CompeticaoModalidade,
   CompeticaoInscricao,
@@ -725,8 +724,7 @@ exports.criarCobrancaInscricao = async (req, res) => {
       const pendente = await Pagamento.findOne({
         where: { competicao_inscricao_id: inscricaoId, status: 'pendente' },
         order: [['createdAt', 'DESC']],
-        include: [{ model: MetodoPagamento,
-  PagamentoItem, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }]
+        include: [{ model: MetodoPagamento, PagamentoItem, as: 'metodoPagamento', attributes: ['id', 'nome', 'configuracao'] }]
       });
       if (pendente && (pendente.qr_code_pix || pendente.linha_digitavel_boleto || pendente.id_transacao_gateway)) {
         const provider = safeProviderFromMetodo(pendente.metodoPagamento) || null;
@@ -960,8 +958,7 @@ exports.listarInscricoesEvento = async (req, res) => {
         { model: Atleta, as: 'atleta', attributes: ['id', 'nome_completo', 'cpf'] },
         { model: CompeticaoModalidade, as: 'competicaoModalidade' },
         { model: Filiacao, as: 'filiacao', include: [{ model: Modalidade, as: 'modalidade', attributes: ['id', 'nome'] }] },
-        { model: Pagamento,
-  PagamentoItem, as: 'pagamentos' },
+        { model: Pagamento, PagamentoItem, as: 'pagamentos' },
       ]
     });
 
@@ -1022,5 +1019,91 @@ exports.revisarAutorizacao = async (req, res) => {
   } catch (err) {
     console.error('Erro ao revisar autorização:', err);
     res.status(500).send('Erro no servidor.');
+  }
+};
+// =========================
+// Admin: Submodalidades (CompeticaoModalidade)
+// =========================
+
+// GET /api/competicoes/submodalidades
+exports.listarSubmodalidades = async (req, res) => {
+  try {
+    const { modalidade_id, ativo, q } = req.query;
+
+    const where = {};
+    if (modalidade_id) where.modalidade_id = Number(modalidade_id);
+    if (ativo !== undefined) where.ativo = String(ativo) === 'true' || String(ativo) === '1';
+    if (q) where.nome = { [Op.like]: `%${q}%` };
+
+    const data = await CompeticaoModalidade.findAll({
+      where,
+      order: [['nome', 'ASC']],
+    });
+
+    return res.json(data);
+  } catch (err) {
+    console.error('Erro ao listar submodalidades:', err);
+    return res.status(500).json({ msg: 'Erro ao listar submodalidades.' });
+  }
+};
+
+// POST /api/competicoes/submodalidades
+exports.criarSubmodalidade = async (req, res) => {
+  try {
+    const { modalidade_id, code, nome, tipo, ativo } = req.body || {};
+    if (!modalidade_id || !code || !nome || !tipo) {
+      return res.status(400).json({ msg: 'Campos obrigatórios: modalidade_id, code, nome, tipo.' });
+    }
+
+    const created = await CompeticaoModalidade.create({
+      modalidade_id: Number(modalidade_id),
+      code,
+      nome,
+      tipo,
+      ativo: ativo === undefined ? true : !!ativo,
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    console.error('Erro ao criar submodalidade:', err);
+    return res.status(500).json({ msg: 'Erro ao criar submodalidade.' });
+  }
+};
+
+// PUT /api/competicoes/submodalidades/:submodalidadeId
+exports.atualizarSubmodalidade = async (req, res) => {
+  try {
+    const { submodalidadeId } = req.params;
+
+    const item = await CompeticaoModalidade.findByPk(submodalidadeId);
+    if (!item) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
+
+    const allowed = ['modalidade_id', 'code', 'nome', 'tipo', 'ativo'];
+    const patch = {};
+    for (const k of allowed) if (k in (req.body || {})) patch[k] = req.body[k];
+
+    if (patch.modalidade_id !== undefined) patch.modalidade_id = Number(patch.modalidade_id);
+
+    await item.update(patch);
+    return res.json(item);
+  } catch (err) {
+    console.error('Erro ao atualizar submodalidade:', err);
+    return res.status(500).json({ msg: 'Erro ao atualizar submodalidade.' });
+  }
+};
+
+// DELETE /api/competicoes/submodalidades/:submodalidadeId
+exports.excluirSubmodalidade = async (req, res) => {
+  try {
+    const { submodalidadeId } = req.params;
+
+    const item = await CompeticaoModalidade.findByPk(submodalidadeId);
+    if (!item) return res.status(404).json({ msg: 'Submodalidade não encontrada.' });
+
+    await item.destroy();
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Erro ao excluir submodalidade:', err);
+    return res.status(500).json({ msg: 'Erro ao excluir submodalidade.' });
   }
 };

@@ -38,7 +38,7 @@ db.CompeticaoInvoiceItem = require('./CompeticaoInvoiceItem.js');
 // db.MetodoPagamento = require('./MetodoPagamento.js');
 // db.Pagamento = require('./Pagamento.js');
 // Itens de pagamento (fatura)
-db.PagamentoItem = require('./PagamentoItem.js');
+//db.PagamentoItem = require('./PagamentoItem.js');
 // db.Noticia = require('./Noticia.js');
 
 

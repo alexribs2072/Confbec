@@ -31,6 +31,9 @@ exports.createNoticia = async (req, res) => {
 // @desc    Listar todas as notícias (para a Home Page)
 // @route   GET /api/noticias
 // @access  Público
+
+
+
 exports.getAllNoticias = async (req, res) => {
     try {
         const noticias = await Noticia.findAll({
