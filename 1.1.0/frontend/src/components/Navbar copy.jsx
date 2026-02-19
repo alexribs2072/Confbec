@@ -1,49 +1,33 @@
 import React, { useState } from 'react';
 import {
   AppBar, Box, Toolbar, IconButton, Typography, Menu,
-  Container, Button, MenuItem, Tooltip, Avatar, Divider,
-  ListItemIcon
+  Container, Button, MenuItem
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import LoginIcon from '@mui/icons-material/Login';
 import AppRegistrationIcon from '@mui/icons-material/AppRegistration';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import LogoutIcon from '@mui/icons-material/Logout';
-import PersonIcon from '@mui/icons-material/Person';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function Navbar() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  
-  // Estados para os Menus
+  const { user } = useAuth();
   const [anchorElNav, setAnchorElNav] = useState(null);
-  const [anchorElUser, setAnchorElUser] = useState(null);
 
-  // Define para onde o botão "Meu Painel" vai levar
+  // Define para onde o botão "Meu Perfil" vai levar
   const dashboardPath = user?.tipo === 'admin' ? '/admin' : '/perfil-atleta';
+  
+  // CORREÇÃO AQUI: Garante que temos um nome ou usa "Usuário" como padrão
   const primeiroNome = user?.nome ? user.nome.split(' ')[0] : 'Usuário';
 
-  // --- Handlers ---
-  const handleOpenNavMenu = (event) => setAnchorElNav(event.currentTarget);
-  const handleCloseNavMenu = () => setAnchorElNav(null);
-
-  const handleOpenUserMenu = (event) => setAnchorElUser(event.currentTarget);
-  const handleCloseUserMenu = () => setAnchorElUser(null);
-
-  const handleLogout = async () => {
-    handleCloseUserMenu();
-    await logout();
-    navigate('/login');
+  const handleOpenNavMenu = (event) => {
+    setAnchorElNav(event.currentTarget);
   };
 
-  const handleGoToDashboard = () => {
-    handleCloseUserMenu();
-    navigate(dashboardPath);
+  const handleCloseNavMenu = () => {
+    setAnchorElNav(null);
   };
 
-  // Itens do Menu Público
   const pages = [
     { title: 'Início', path: '/' },
     { title: 'Competições', path: '/competicoes' }
@@ -53,7 +37,6 @@ function Navbar() {
     <AppBar position="sticky" elevation={0} sx={{ bgcolor: 'primary.main' }}>
       <Container maxWidth="xl">
         <Toolbar disableGutters>
-          
           {/* LOGO (Desktop) */}
           <Typography
             variant="h6"
@@ -72,7 +55,7 @@ function Navbar() {
             CONFBEC
           </Typography>
 
-          {/* MENU MOBILE (Hamburguer) */}
+          {/* MENU MOBILE */}
           <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
             <IconButton
               size="large"
@@ -101,6 +84,21 @@ function Navbar() {
                   <Typography textAlign="center">{page.title}</Typography>
                 </MenuItem>
               ))}
+
+              {user ? (
+                <MenuItem component={RouterLink} to={dashboardPath} onClick={handleCloseNavMenu}>
+                  <Typography textAlign="center" fontWeight="bold" color="primary">Meu Perfil</Typography>
+                </MenuItem>
+              ) : (
+                [
+                  <MenuItem key="login" component={RouterLink} to="/login" onClick={handleCloseNavMenu}>
+                    <Typography textAlign="center">Login</Typography>
+                  </MenuItem>,
+                  <MenuItem key="register" component={RouterLink} to="/register" onClick={handleCloseNavMenu}>
+                    <Typography textAlign="center">Registrar</Typography>
+                  </MenuItem>
+                ]
+              )}
             </Menu>
           </Box>
 
@@ -122,7 +120,7 @@ function Navbar() {
             CONFBEC
           </Typography>
 
-          {/* MENU DESKTOP (Links Centrais) */}
+          {/* MENU DESKTOP */}
           <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, ml: 2 }}>
             {pages.map((page) => (
               <Button
@@ -137,55 +135,31 @@ function Navbar() {
             ))}
           </Box>
 
-          {/* ÁREA DO USUÁRIO (Direita) */}
-          <Box sx={{ flexGrow: 0 }}>
+          {/* BOTOES DE AÇÃO */}
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 2, alignItems: 'center' }}>
             {user ? (
-              <>
-                <Tooltip title="Abrir configurações">
-                  <IconButton onClick={handleOpenUserMenu} sx={{ p: 0 }}>
-                    <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                      {user.nome ? user.nome.charAt(0).toUpperCase() : <PersonIcon />}
-                    </Avatar>
-                  </IconButton>
-                </Tooltip>
-                
-                {/* MENU SUSPENSO (DROPDOWN) */}
-                <Menu
-                  sx={{ mt: '45px' }}
-                  id="menu-appbar"
-                  anchorEl={anchorElUser}
-                  anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                  keepMounted
-                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                  open={Boolean(anchorElUser)}
-                  onClose={handleCloseUserMenu}
-                >
-                  <Box sx={{ px: 2, py: 1 }}>
-                    <Typography variant="subtitle2" fontWeight="bold">Olá, {primeiroNome}</Typography>
-                    <Typography variant="caption" color="text.secondary">{user.tipo}</Typography>
-                  </Box>
-                  <Divider />
-                  
-                  <MenuItem onClick={handleGoToDashboard}>
-                    <ListItemIcon><DashboardIcon fontSize="small" /></ListItemIcon>
-                    <Typography textAlign="center">Meu Painel</Typography>
-                  </MenuItem>
-                  
-                  <MenuItem onClick={handleLogout}>
-                    <ListItemIcon><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
-                    <Typography textAlign="center" color="error">Sair</Typography>
-                  </MenuItem>
-                </Menu>
-              </>
+              <Button
+                component={RouterLink}
+                to={dashboardPath}
+                variant="contained"
+                color="secondary"
+                startIcon={<DashboardIcon />}
+                sx={{ 
+                  fontWeight: 'bold',
+                  textTransform: 'none',
+                  borderRadius: 2,
+                  px: 3
+                }}
+              >
+                Olá, {primeiroNome} | Meu Perfil
+              </Button>
             ) : (
-              // BOTOES SE NÃO ESTIVER LOGADO
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <>
                 <Button
                   component={RouterLink}
                   to="/login"
                   variant="outlined"
                   color="inherit"
-                  size="small"
                   startIcon={<LoginIcon />}
                   sx={{ borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}
                 >
@@ -196,16 +170,14 @@ function Navbar() {
                   to="/register"
                   variant="contained"
                   color="secondary"
-                  size="small"
                   startIcon={<AppRegistrationIcon />}
                   sx={{ fontWeight: 'bold' }}
                 >
                   Registrar
                 </Button>
-              </Box>
+              </>
             )}
           </Box>
-
         </Toolbar>
       </Container>
     </AppBar>

@@ -9,7 +9,7 @@ import SportsMartialArtsIcon from '@mui/icons-material/SportsMartialArts';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import PaymentIcon from '@mui/icons-material/Payment';
 import NewspaperIcon from '@mui/icons-material/Newspaper';
-import AccountBoxIcon from '@mui/icons-material/AccountBox'; 
+import AccountBoxIcon from '@mui/icons-material/AccountBox'; // Novo ícone para Perfil
 
 // Definição de Permissões
 const ROLES = {
@@ -32,7 +32,7 @@ export const MENU_STRUCTURE = [
       },
       {
         title: 'Meu Perfil',
-        path: '/perfil-usuario', // Rota para Admin/Prof
+        path: '/perfil-usuario', // Rota para Admin/Prof (Precisa existir no main.jsx)
         icon: <AccountBoxIcon />,
         allowedRoles: [ROLES.ADMIN, ROLES.PROFESSOR, ROLES.TREINADOR],
       }
@@ -45,13 +45,13 @@ export const MENU_STRUCTURE = [
     items: [
       {
         title: 'Início',
-        path: '/', 
+        path: '/', // Home pública (ou dashboard se preferir mudar)
         icon: <DashboardIcon />,
         allowedRoles: Object.values(ROLES),
       },
       {
         title: 'Competições',
-        path: '/competicoes', // Visualização pública
+        path: '/competicoes',
         icon: <EmojiEventsIcon />,
         allowedRoles: Object.values(ROLES),
       },
@@ -83,7 +83,7 @@ export const MENU_STRUCTURE = [
       {
         title: 'Carrinho',
         path: '/competicoes/carrinho',
-        icon: <PaymentIcon />,
+        icon: <PaymentIcon />, // Reutilizando ícone de pagamento
         allowedRoles: [ROLES.ATLETA],
       },
     ]
@@ -112,14 +112,6 @@ export const MENU_STRUCTURE = [
         icon: <DashboardIcon />,
         allowedRoles: [ROLES.ADMIN],
       },
-      // --- NOVO ITEM ADICIONADO AQUI ---
-      {
-        title: 'Gestão de Competições',
-        path: '/admin/competicoes',
-        icon: <EmojiEventsIcon />,
-        allowedRoles: [ROLES.ADMIN],
-      },
-      // ---------------------------------
       {
         title: 'Modalidades',
         path: '/admin/modalidades',
@@ -147,7 +139,7 @@ export const MENU_STRUCTURE = [
       {
         title: 'Academias',
         path: '/admin/academias',
-        icon: <CorporateFareIcon />,
+        icon: <CorporateFareIcon />, // Ícone de prédio/academia
         allowedRoles: [ROLES.ADMIN],
       },
       {

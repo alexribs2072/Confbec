@@ -10,7 +10,6 @@ router.get('/eventos/:eventoId', protegerOpcional, competicaoController.getEvent
 router.post('/eventos', proteger, checkAdmin, competicaoController.criarEvento);
 router.put('/eventos/:eventoId', proteger, checkAdmin, competicaoController.atualizarEvento);
 router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.excluirEvento);
-//router.delete('/eventos/:eventoId', proteger, checkAdmin, competicaoController.cancelarEvento);
 router.put('/eventos/:eventoId/modalidades', proteger, checkAdmin, competicaoController.atualizarModalidadesDoEvento);
 
 // ===== Modalidades de competição =====
